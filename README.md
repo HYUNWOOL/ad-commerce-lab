@@ -22,7 +22,7 @@
 | 설계 | 아키텍처, 서비스 경계, 도메인·이벤트·API 명세, ADR | 완료 |
 | M1 구매·결제 코어 | 멱등키, 상태 머신, Transactional Outbox → Kafka, Saga 보상 | 완료 ([흐름](docs/03-development/flow-m1.md)) |
 | M2 장애 격리·관측 | 서킷 브레이커, 결과 재조회, 장애 주입(Toxiproxy), 분산 트레이싱, 지표, S4~S6 전후 비교 | 완료 ([흐름](docs/03-development/flow-m2.md), [실험 결과](docs/04-verification/m2-resilience.md)) |
-| M3 노출·과금·정산 | 대량 노출 수집·집계, 예산 차감, 원장, Inbox | 예정 |
+| M3 노출·과금·정산 | 노출 수집(초당 1만 건 확인), 배치 과금·예산 차감, 복식부기 원장(DB 트리거), 정산서 | 완료 ([흐름](docs/03-development/flow-m3.md), [실험 결과](docs/04-verification/m3-billing.md)) |
 | M4 서버 주도 화면 | SDUI BFF, React 렌더러, 컴포넌트 버전·대체 표시 | 예정 |
 | M5 AI 에이전트 | MCP 도구, 위임 한도, 사람 승인, 인젝션 평가 | 예정 |
 
@@ -31,7 +31,9 @@
 ```bash
 ./gradlew bootJar && docker compose -f infra/docker-compose.yml up -d --build
 bash scripts/e2e-m1.sh            # 정상 흐름 스모크
+bash scripts/e2e-m3.sh            # 주문 → 노출 → 과금 → 정산서
 bash scripts/experiments/m2.sh s5  # 장애 실험(S4~S6)
+bash scripts/experiments/m3.sh s7  # 노출 부하 실험(S7~S9)
 python scripts/trace.py            # 최근 주문 하나의 분산 트레이스
 ```
 
@@ -45,4 +47,4 @@ python scripts/trace.py            # 최근 주문 하나의 분산 트레이스
 
 ## 기술
 
-Kotlin · Spring Boot · Spring Cloud Gateway · PostgreSQL · Kafka · Redis · Resilience4j · OpenTelemetry · Prometheus · Grafana · Python · FastAPI · MCP · React · Docker Compose · k6 · Toxiproxy
+Kotlin · Spring Boot · Spring Cloud Gateway · PostgreSQL · Kafka · Resilience4j · OpenTelemetry · Prometheus · Grafana · Python · FastAPI · MCP · React · Docker Compose · k6 · Toxiproxy
