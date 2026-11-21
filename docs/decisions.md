@@ -37,6 +37,9 @@
 | [0001](02-design/adr/0001-stack-and-repo.md) | 기술 스택과 저장소 구조 (Boot 4.1.3, Kotlin 2.3.21, JdbcClient, 멀티 모듈) |
 | [0002](02-design/adr/0002-saga-outbox-inbox.md) | 코레오그래피 Saga + Outbox(폴링) + Inbox |
 | [0003](02-design/adr/0003-sync-call-resilience.md) | 동기 호출의 장애 격리 기본값 |
+| [0004](02-design/adr/0004-payment-reconcile.md) | 결과를 모르는 결제의 확정(재조회 + 같은 멱등키 재승인) |
+| [0005](02-design/adr/0005-observability.md) | 관측: OpenTelemetry 트레이스 + Prometheus 메트릭 |
+| [0006](02-design/adr/0006-defer-when-pg-unavailable.md) | PG가 받지 않은 결제는 실패 대신 보류(S4 실험 결과로 결정) |
 
 ## D5. 강조점: 커머스·플랫폼 회사 (2026-11-21)
 - 상황: 주인이 가장 원하는 곳은 커머스·플랫폼 회사다.

@@ -1,0 +1,5 @@
+# 실험용 덮어쓰기(S4 비교): 서킷은 켜 두되, PG가 받지 않으면(503·서킷 열림) 보류하지 않고 바로 실패시킨다(ADR-0006 이전 동작).
+services:
+  payment:
+    environment:
+      PAYMENT_PGUNAVAILABLE: fail

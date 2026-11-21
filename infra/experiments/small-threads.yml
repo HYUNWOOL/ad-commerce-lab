@@ -1,0 +1,5 @@
+# 실험용 덮어쓰기(S6): campaign 요청 스레드를 40개로 줄여, 적은 부하로도 "스레드가 다 묶이는" 상황을 재현한다. 보호 켬·끔 두 번 모두 같이 쓴다.
+services:
+  campaign:
+    environment:
+      SERVER_TOMCAT_THREADS_MAX: "40"
