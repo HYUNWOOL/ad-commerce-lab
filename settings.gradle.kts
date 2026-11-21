@@ -4,5 +4,6 @@ include(
     "services:common",
     "services:catalog",
     "services:campaign",
+    "services:payment",
     "services:mock-pg",
 )

@@ -9,9 +9,9 @@ GitHub Milestone "M1 구매·결제 코어"(Issue #1~#8). 설계 근거는 docs/
 | #1 | Gradle 멀티 모듈, common(EventEnvelope, Outbox·OutboxRelay, Inbox, IdempotencyStore, ProblemHandlers, InfraContainers 테스트 픽스처) | 완료(컴파일) |
 | #3 | catalog: 상품 조회, Flyway 시드 4개 | 완료(빌드) |
 | #5 | mock-pg: 승인·조회·취소, `PUT /admin/chaos`(delayMs, failureRate), 500만 원 초과 거절 | 완료(빌드) |
-| #4 | campaign | 다음 |
-| #6 | payment | 다음 |
-| #7 | Saga 보상 | campaign·payment와 함께 |
+| #4 | campaign: 주문(멱등키)·상태 머신·Outbox·결제 결과 소비, 통합 테스트 8개 | 완료 |
+| #6 | payment: OrderPlaced 소비 → PG(트랜잭션 밖, CB) → 결과 이벤트, UNKNOWN 처리, 통합 테스트 4개 | 완료 |
+| #7 | Saga 보상: 결제 실패 → 주문 취소 | 완료(campaign 테스트) |
 | #2, #8 | compose 인프라, gateway, E2E 스모크 | 마지막 |
 
 ## 남은 구현 방향 (정해 둔 것)

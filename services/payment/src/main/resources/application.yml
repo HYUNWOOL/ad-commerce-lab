@@ -1,0 +1,35 @@
+server:
+  port: 8083
+spring:
+  application:
+    name: payment
+  datasource:
+    url: jdbc:postgresql://localhost:5432/payment
+    username: lab
+    password: lab
+  flyway:
+    locations: classpath:db/common,classpath:db/migration
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      auto-offset-reset: earliest
+clients:
+  pg:
+    url: http://localhost:8090
+# PG 호출 장애 격리(ADR-0003). 느린 호출(2초 이상)도 실패로 센다.
+resilience4j:
+  circuitbreaker:
+    instances:
+      pg:
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        slow-call-duration-threshold: 2s
+        slow-call-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,circuitbreakers
