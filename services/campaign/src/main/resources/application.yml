@@ -1,0 +1,37 @@
+server:
+  port: 8082
+spring:
+  application:
+    name: campaign
+  datasource:
+    url: jdbc:postgresql://localhost:5432/campaign
+    username: lab
+    password: lab
+  flyway:
+    locations: classpath:db/common,classpath:db/migration
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      auto-offset-reset: earliest
+clients:
+  catalog:
+    url: http://localhost:8081
+# 동기 호출 장애 격리 기본값(ADR-0003)
+resilience4j:
+  circuitbreaker:
+    instances:
+      catalog:
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        slow-call-duration-threshold: 2s
+        slow-call-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        ignore-exceptions:
+          - lab.adcommerce.campaign.ProductNotFound
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,circuitbreakers
