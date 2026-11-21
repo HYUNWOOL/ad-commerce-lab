@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | Spring Boot | 4.1.3 | 4.2.0은 갓 나온 버전이고 start.spring.io의 Spring Cloud 호환표가 아직 RC만 연결한다. 한 단계 아래 최신 패치를 쓴다 |
 | Spring Cloud | 2025.1.5 | Boot 4.0~4.1 호환(start.spring.io bom-ranges) |
-| Kotlin | 2.4.21 | 최신 안정판(2.5는 RC) |
+| Kotlin | 2.3.21 | Spring Boot 4.1.3 BOM이 관리하는 버전. 최신 안정판 2.4.21을 쓰면 BOM이 표준 라이브러리를 2.3.21로 고정해 컴파일러와 어긋난다 |
 | JDK | 25 | 설치된 LTS |
 | Resilience4j | 2.4.0 (resilience4j-spring-boot4) | Boot 4 전용 아티팩트 |
 | Gradle | 9.9.2 (wrapper) | 최신 |

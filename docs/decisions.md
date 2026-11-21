@@ -34,7 +34,7 @@
 
 | ADR | 제목 |
 | --- | --- |
-| [0001](02-design/adr/0001-stack-and-repo.md) | 기술 스택과 저장소 구조 (Boot 4.1.3, Kotlin 2.4.21, JdbcClient, 멀티 모듈) |
+| [0001](02-design/adr/0001-stack-and-repo.md) | 기술 스택과 저장소 구조 (Boot 4.1.3, Kotlin 2.3.21, JdbcClient, 멀티 모듈) |
 | [0002](02-design/adr/0002-saga-outbox-inbox.md) | 코레오그래피 Saga + Outbox(폴링) + Inbox |
 | [0003](02-design/adr/0003-sync-call-resilience.md) | 동기 호출의 장애 격리 기본값 |
 

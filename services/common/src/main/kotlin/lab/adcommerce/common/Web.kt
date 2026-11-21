@@ -1,0 +1,45 @@
+package lab.adcommerce.common
+
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
+import org.springframework.http.HttpStatus
+import org.springframework.http.ProblemDetail
+import org.springframework.http.ResponseEntity
+import org.springframework.scheduling.annotation.EnableScheduling
+import org.springframework.web.bind.MissingRequestHeaderException
+import org.springframework.web.bind.annotation.ExceptionHandler
+import org.springframework.web.bind.annotation.RestControllerAdvice
+import tools.jackson.databind.JacksonModule
+import tools.jackson.module.kotlin.KotlinModule
+
+/** 의존 서비스가 응답하지 않거나 서킷이 열렸다. 재시도 가능한 503으로 돌려준다(ADR-0003). */
+class DependencyUnavailable(val dependency: String, val retryAfterSeconds: Int = 10) :
+    RuntimeException("$dependency 서비스를 지금 사용할 수 없습니다")
+
+class NotFound(message: String) : RuntimeException(message)
+
+@RestControllerAdvice
+class ProblemHandlers {
+    @ExceptionHandler(IdempotencyKeyReused::class)
+    fun reused(e: IdempotencyKeyReused) = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.message)
+
+    @ExceptionHandler(IllegalArgumentException::class, MissingRequestHeaderException::class)
+    fun badRequest(e: Exception) = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.message)
+
+    @ExceptionHandler(NotFound::class)
+    fun notFound(e: NotFound) = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.message)
+
+    @ExceptionHandler(DependencyUnavailable::class)
+    fun unavailable(e: DependencyUnavailable): ResponseEntity<ProblemDetail> =
+        ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+            .header("Retry-After", e.retryAfterSeconds.toString())
+            .body(ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, e.message))
+}
+
+@Configuration
+@EnableScheduling
+class CommonConfig {
+    /** data class 이벤트·요청을 Jackson 3로 읽고 쓰기 위해 Kotlin 모듈을 등록한다. */
+    @Bean
+    fun kotlinJacksonModule(): JacksonModule = KotlinModule.Builder().build()
+}
