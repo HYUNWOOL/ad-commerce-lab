@@ -45,18 +45,20 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
   [*] --> REQUESTED: OrderPlaced 소비
+  REQUESTED --> REQUESTED: PG가 받지 않음(503·서킷 열림) → 보류, 재조회가 같은 멱등키로 다시 보냄
   REQUESTED --> APPROVED: PG 승인
-  REQUESTED --> FAILED: PG 거절 / 서킷 열림 후 재시도 한도 초과
+  REQUESTED --> FAILED: PG 거절 / 10분 안에 PG가 받지 못함
   REQUESTED --> UNKNOWN: PG 타임아웃(결과 모름)
   UNKNOWN --> APPROVED: 재조회 결과 승인
-  UNKNOWN --> FAILED: 재조회 결과 없음·거절
+  UNKNOWN --> FAILED: 재조회 결과 거절 / PG에 없고 10분 지남
   APPROVED --> PARTIALLY_REFUNDED: 부분 환불
   APPROVED --> REFUNDED: 전액 환불
   PARTIALLY_REFUNDED --> REFUNDED
 ```
 
 - 한 주문에 결제는 하나(`order_id` 유니크). PG에는 결제 ID를 멱등키로 보내, 재시도해도 PG에서 한 번만 승인된다.
-- `UNKNOWN`은 사람이 확인하는 대신 스케줄러가 PG 조회 API로 확정한다(FR-202).
+- `UNKNOWN`은 사람이 확인하는 대신 스케줄러가 PG 조회 API로 확정한다(FR-202, ADR-0004).
+- PG가 받지 않은 결제는 바로 실패시키지 않고 보류한다(ADR-0006). 주문은 그동안 PAYMENT_PENDING("결제 확인 중")이다.
 
 ## 2.5 노출·과금 (delivery 서비스, M3)
 

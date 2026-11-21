@@ -20,21 +20,45 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
-@SpringBootTest
+@SpringBootTest(
+    properties = [
+        "payment.reconcile.unknown-after=0s", // 테스트에서는 기다리지 않고 바로 집는다
+        "payment.reconcile.requested-after=0s",
+        "payment.reconcile.interval-ms=3600000", // 스케줄러 대신 테스트가 reconcileBatch()를 직접 부른다
+    ],
+)
 @Import(InfraContainers::class, PaymentFlowTest.StubPgConfig::class)
 class PaymentFlowTest {
 
-    /** 주문 금액으로 결과를 정한다: 끝자리 1 → 거절, 2 → 타임아웃(결과 모름), 그 외 승인. */
+    /**
+     * 주문 금액 끝자리로 PG의 행동을 정한다.
+     * 1 → 거절, 2 → 타임아웃이지만 PG는 승인함, 3 → 타임아웃이고 PG에 닿지 않음(다시 보내면 승인),
+     * 4 → 타임아웃이고 조회도 계속 실패, 5 → 처음엔 PG가 받지 않음(503·서킷 열림), 다시 보내면 승인, 그 외 → 승인.
+     */
     class StubPg : PgClient {
         val calls = ConcurrentHashMap<UUID, AtomicInteger>()
+        private val approveCalls = ConcurrentHashMap<UUID, AtomicInteger>()
+        private val amounts = ConcurrentHashMap<UUID, Long>()
+        /** PG 쪽에 기록된 결제(멱등키 = 결제 ID). */
+        val recorded = ConcurrentHashMap<UUID, PgOutcome>()
+
         override fun approve(paymentId: UUID, orderId: UUID, amount: Long): PgOutcome {
             calls.computeIfAbsent(orderId) { AtomicInteger() }.incrementAndGet()
+            amounts[paymentId] = amount
+            val nth = approveCalls.computeIfAbsent(paymentId) { AtomicInteger() }.incrementAndGet()
+            recorded[paymentId]?.let { return it } // 같은 멱등키면 처음 결과
             return when (amount % 10) {
-                1L -> PgOutcome.Declined("LIMIT_EXCEEDED")
-                2L -> PgOutcome.Unknown
-                else -> PgOutcome.Approved("pg-$paymentId")
+                1L -> PgOutcome.Declined("LIMIT_EXCEEDED").also { recorded[paymentId] = it }
+                2L -> PgOutcome.Unknown.also { recorded[paymentId] = PgOutcome.Approved("pg-$paymentId") }
+                3L -> if (nth == 1) PgOutcome.Unknown else PgOutcome.Approved("pg-$paymentId").also { recorded[paymentId] = it }
+                4L -> PgOutcome.Unknown
+                5L -> if (nth == 1) PgOutcome.Unavailable else PgOutcome.Approved("pg-$paymentId").also { recorded[paymentId] = it }
+                else -> PgOutcome.Approved("pg-$paymentId").also { recorded[paymentId] = it }
             }
         }
+
+        override fun find(paymentId: UUID): PgOutcome? =
+            if (amounts[paymentId]?.rem(10) == 4L) PgOutcome.Unavailable else recorded[paymentId]
     }
 
     @TestConfiguration
@@ -46,6 +70,7 @@ class PaymentFlowTest {
     @Autowired lateinit var kafka: KafkaTemplate<String, String>
     @Autowired lateinit var mapper: JsonMapper
     @Autowired lateinit var pg: StubPg
+    @Autowired lateinit var service: PaymentService
 
     private fun publishOrder(orderId: UUID, amount: Long, eventId: UUID = UUID.randomUUID()) {
         val payload = OrderPlaced(orderId, "P-1", 1, amount, 50, LocalDate.of(2026, 12, 1), LocalDate.of(2026, 12, 7))
@@ -110,4 +135,111 @@ class PaymentFlowTest {
         eventually("UNKNOWN") { status(orderId) == "UNKNOWN" }
         assertThat(resultEvents(orderId)).isEmpty()
     }
+
+    @Test
+    fun `S5 타임아웃됐지만 PG가 승인했으면 재조회가 APPROVED로 확정하고 PaymentApproved를 한 번 낸다`() {
+        val orderId = UUID.randomUUID()
+        publishOrder(orderId, 300_012)
+        eventually("UNKNOWN") { status(orderId) == "UNKNOWN" }
+
+        service.reconcileBatch()
+
+        assertThat(status(orderId)).isEqualTo("APPROVED")
+        assertThat(resultEvents(orderId)).containsExactly("PaymentApproved")
+        assertThat(pg.calls[orderId]!!.get()).isEqualTo(1) // 조회로 끝났으니 승인은 다시 보내지 않았다
+    }
+
+    @Test
+    fun `S5 PG에 요청이 닿지 않았으면 같은 멱등키로 다시 승인해 확정한다`() {
+        val orderId = UUID.randomUUID()
+        publishOrder(orderId, 300_013)
+        eventually("UNKNOWN") { status(orderId) == "UNKNOWN" }
+
+        service.reconcileBatch()
+
+        assertThat(status(orderId)).isEqualTo("APPROVED")
+        assertThat(pg.recorded[paymentId(orderId)]).isInstanceOf(PgOutcome.Approved::class.java)
+        assertThat(resultEvents(orderId)).containsExactly("PaymentApproved")
+    }
+
+    @Test
+    fun `PG가 계속 대답하지 못하면 실패로 단정하지 않고 UNKNOWN으로 남긴다`() {
+        val orderId = UUID.randomUUID()
+        publishOrder(orderId, 300_014)
+        eventually("UNKNOWN") { status(orderId) == "UNKNOWN" }
+
+        service.reconcileBatch()
+        service.reconcileBatch()
+
+        assertThat(status(orderId)).isEqualTo("UNKNOWN")
+        assertThat(resultEvents(orderId)).isEmpty()
+        assertThat(attempts(orderId)).isGreaterThanOrEqualTo(2)
+    }
+
+    @Test
+    fun `처리 중 죽어 REQUESTED에 오래 머문 결제도 재조회가 확정한다`() {
+        val orderId = UUID.randomUUID()
+        val paymentId = UUID.randomUUID()
+        jdbc.sql(
+            "INSERT INTO payments (id, order_id, partner_id, amount, status, updated_at) VALUES (:id, :orderId, 'P-1', 300000, 'REQUESTED', now() - interval '1 minute')",
+        ).param("id", paymentId).param("orderId", orderId).update()
+
+        service.reconcileBatch()
+
+        assertThat(status(orderId)).isEqualTo("APPROVED")
+        assertThat(resultEvents(orderId)).containsExactly("PaymentApproved")
+    }
+
+    @Test
+    fun `재조회가 동시에 두 번 돌아도 결과 이벤트는 한 번이다`() {
+        val orderId = UUID.randomUUID()
+        publishOrder(orderId, 300_012)
+        eventually("UNKNOWN") { status(orderId) == "UNKNOWN" }
+
+        listOf(Thread { service.reconcileBatch() }, Thread { service.reconcileBatch() }).onEach { it.start() }.forEach { it.join() }
+
+        assertThat(status(orderId)).isEqualTo("APPROVED")
+        assertThat(resultEvents(orderId)).containsExactly("PaymentApproved")
+    }
+
+    @Test
+    fun `PG가 받지 않으면(503·서킷 열림) 실패로 끝내지 않고 보류했다가 재조회가 같은 멱등키로 다시 보내 확정한다`() {
+        val orderId = UUID.randomUUID()
+        publishOrder(orderId, 300_015)
+        eventually("보류") { reason(orderId) == "PG_UNAVAILABLE" }
+        assertThat(status(orderId)).isEqualTo("REQUESTED")
+        assertThat(resultEvents(orderId)).isEmpty() // 보류 중에는 주문을 취소시키지 않는다
+
+        service.reconcileBatch()
+
+        assertThat(status(orderId)).isEqualTo("APPROVED")
+        assertThat(resultEvents(orderId)).containsExactly("PaymentApproved")
+    }
+
+    @Test
+    fun `보류가 기한을 넘기고 PG에도 없으면 다시 보내지 않고 PG_UNAVAILABLE로 실패시킨다`() {
+        val orderId = UUID.randomUUID()
+        jdbc.sql(
+            """
+            INSERT INTO payments (id, order_id, partner_id, amount, status, failure_reason, created_at, updated_at)
+            VALUES (:id, :orderId, 'P-1', 300000, 'REQUESTED', 'PG_UNAVAILABLE', now() - interval '1 hour', now() - interval '1 minute')
+            """.trimIndent(),
+        ).param("id", UUID.randomUUID()).param("orderId", orderId).update()
+
+        service.reconcileBatch()
+
+        assertThat(status(orderId)).isEqualTo("FAILED")
+        assertThat(reason(orderId)).isEqualTo("PG_UNAVAILABLE")
+        assertThat(resultEvents(orderId)).containsExactly("PaymentFailed")
+        assertThat(pg.calls[orderId]).isNull() // 기한이 지난 결제는 PG에 다시 보내지 않는다
+    }
+
+    private fun reason(orderId: UUID): String? =
+        jdbc.sql("SELECT failure_reason FROM payments WHERE order_id = :id").param("id", orderId).query(String::class.java).optional().orElse(null)
+
+    private fun paymentId(orderId: UUID): UUID =
+        jdbc.sql("SELECT id FROM payments WHERE order_id = :id").param("id", orderId).query(UUID::class.java).single()
+
+    private fun attempts(orderId: UUID): Int =
+        jdbc.sql("SELECT reconcile_attempts FROM payments WHERE order_id = :id").param("id", orderId).query(Int::class.java).single()
 }

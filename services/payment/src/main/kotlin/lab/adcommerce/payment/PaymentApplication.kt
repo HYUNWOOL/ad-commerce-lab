@@ -1,6 +1,7 @@
 package lab.adcommerce.payment
 
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException
+import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.SpringBootApplication
@@ -48,34 +49,52 @@ sealed interface PgOutcome {
 
 interface PgClient {
     fun approve(paymentId: UUID, orderId: UUID, amount: Long): PgOutcome
+
+    /** 멱등키(결제 ID)로 PG의 결제를 조회한다. null이면 PG에 그 결제가 없다(ADR-0004). */
+    fun find(paymentId: UUID): PgOutcome?
 }
 
-data class PgResponse(val transactionId: String, val status: String, val reason: String?)
+data class PgResponse(val transactionId: String, val status: String, val reason: String?) {
+    fun toOutcome(): PgOutcome = if (status == "APPROVED") PgOutcome.Approved(transactionId) else PgOutcome.Declined(reason ?: "DECLINED")
+}
 
 @Component
 class HttpPgClient(
     @Value("\${clients.pg.url}") baseUrl: String,
+    @Value("\${clients.pg.read-timeout:3s}") readTimeout: Duration,
+    builder: RestClient.Builder, // Boot가 주는 빌더라야 호출이 트레이스에 잡힌다
     registry: CircuitBreakerRegistry,
 ) : PgClient {
-    private val breaker = registry.circuitBreaker("pg")
-    private val rest = RestClient.builder()
+    // 승인과 조회는 서킷을 나눈다. 승인 타임아웃으로 열린 서킷이 그 결과를 확인할 조회까지 막지 않게 한다(S5 첫 실험에서 발견).
+    private val approveBreaker = registry.circuitBreaker("pg")
+    private val queryBreaker = registry.circuitBreaker("pg-query")
+    private val rest = builder
         .baseUrl(baseUrl)
         .requestFactory(
             JdkClientHttpRequestFactory(HttpClient.newBuilder().connectTimeout(Duration.ofMillis(500)).build())
-                .apply { setReadTimeout(Duration.ofSeconds(3)) },
+                .apply { setReadTimeout(readTimeout) },
         )
         .build()
 
-    override fun approve(paymentId: UUID, orderId: UUID, amount: Long): PgOutcome = try {
-        breaker.executeSupplier {
-            // 결제 ID를 PG 멱등키로 보낸다. 같은 결제를 다시 보내도 PG에서 한 번만 승인된다.
-            val response = rest.post().uri("/v1/payments")
-                .header("Idempotency-Key", paymentId.toString())
-                .body(mapOf("orderId" to orderId.toString(), "amount" to amount))
-                .retrieve()
-                .body(PgResponse::class.java)!!
-            if (response.status == "APPROVED") PgOutcome.Approved(response.transactionId) else PgOutcome.Declined(response.reason ?: "DECLINED")
-        }
+    override fun approve(paymentId: UUID, orderId: UUID, amount: Long): PgOutcome = call(approveBreaker) {
+        // 결제 ID를 PG 멱등키로 보낸다. 같은 결제를 다시 보내도 PG에서 한 번만 승인된다.
+        rest.post().uri("/v1/payments")
+            .header("Idempotency-Key", paymentId.toString())
+            .body(mapOf("orderId" to orderId.toString(), "amount" to amount))
+            .retrieve()
+            .body(PgResponse::class.java)!!
+            .toOutcome()
+    }!!
+
+    override fun find(paymentId: UUID): PgOutcome? = call(queryBreaker) {
+        val response = rest.get().uri("/v1/payments/{key}", paymentId).retrieve()
+            .onStatus({ it.value() == 404 }) { _, _ -> } // 없음은 오류가 아니다
+            .toEntity(PgResponse::class.java)
+        if (response.statusCode.value() == 404) null else response.body!!.toOutcome()
+    }
+
+    private fun call(breaker: CircuitBreaker, block: () -> PgOutcome?): PgOutcome? = try {
+        breaker.executeSupplier(block)
     } catch (e: CallNotPermittedException) {
         PgOutcome.Unavailable
     } catch (e: ResourceAccessException) {
