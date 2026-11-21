@@ -55,14 +55,16 @@ interface CatalogClient {
 @Component
 class HttpCatalogClient(
     @Value("\${clients.catalog.url}") baseUrl: String,
+    @Value("\${clients.catalog.read-timeout:1s}") readTimeout: Duration,
+    builder: RestClient.Builder, // Boot가 주는 빌더라야 호출이 트레이스에 잡힌다
     registry: CircuitBreakerRegistry,
 ) : CatalogClient {
     private val breaker = registry.circuitBreaker("catalog")
-    private val rest = RestClient.builder()
+    private val rest = builder
         .baseUrl(baseUrl)
         .requestFactory(
             JdkClientHttpRequestFactory(HttpClient.newBuilder().connectTimeout(Duration.ofMillis(500)).build())
-                .apply { setReadTimeout(Duration.ofSeconds(1)) },
+                .apply { setReadTimeout(readTimeout) },
         )
         .build()
 

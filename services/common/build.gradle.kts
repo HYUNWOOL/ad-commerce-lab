@@ -10,6 +10,9 @@ dependencies {
     api("org.springframework.boot:spring-boot-starter-flyway")
     api("org.springframework.boot:spring-boot-starter-kafka")
     api("org.springframework.boot:spring-boot-starter-actuator")
+    // 트레이스(ADR-0005). 메트릭은 Prometheus로 보므로 OTLP 메트릭 레지스트리는 뺀다.
+    api("org.springframework.boot:spring-boot-starter-opentelemetry") { exclude(group = "io.micrometer", module = "micrometer-registry-otlp") }
+    api("io.micrometer:micrometer-registry-prometheus") // 메트릭은 Prometheus가 긁어 간다
     api("tools.jackson.module:jackson-module-kotlin")
     api("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")

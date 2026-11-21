@@ -1,8 +1,11 @@
 package lab.adcommerce.mockpg
 
+import io.micrometer.observation.ObservationPredicate
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
+import org.springframework.context.annotation.Bean
 import org.springframework.http.HttpStatus
+import org.springframework.http.server.observation.ServerRequestObservationContext
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -16,7 +19,13 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.random.Random
 
 @SpringBootApplication
-class MockPgApplication
+class MockPgApplication {
+    /** Prometheus가 5초마다 부르는 /actuator 요청은 트레이스에서 뺀다(ADR-0005). */
+    @Bean
+    fun dropActuatorObservations() = ObservationPredicate { _, c ->
+        !(c is ServerRequestObservationContext && c.carrier?.requestURI?.startsWith("/actuator") == true)
+    }
+}
 
 fun main(args: Array<String>) {
     runApplication<MockPgApplication>(*args)

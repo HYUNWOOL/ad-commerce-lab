@@ -1,0 +1,4 @@
+[
+  { "name": "pg", "listen": "0.0.0.0:28090", "upstream": "mock-pg:8090", "enabled": true },
+  { "name": "catalog", "listen": "0.0.0.0:28081", "upstream": "catalog:8081", "enabled": true }
+]

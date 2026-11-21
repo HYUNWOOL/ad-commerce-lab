@@ -1,5 +1,6 @@
 package lab.adcommerce.gateway
 
+import io.micrometer.observation.ObservationPredicate
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletRequestWrapper
@@ -8,8 +9,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.runApplication
+import org.springframework.context.annotation.Bean
 import org.springframework.core.Ordered
 import org.springframework.core.annotation.Order
+import org.springframework.http.server.observation.ServerRequestObservationContext
 import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
 import java.util.Collections
@@ -17,7 +20,13 @@ import java.util.Enumeration
 
 @SpringBootApplication
 @EnableConfigurationProperties(ApiKeys::class)
-class GatewayApplication
+class GatewayApplication {
+    /** Prometheus가 5초마다 부르는 /actuator 요청은 트레이스에서 뺀다(ADR-0005). */
+    @Bean
+    fun dropActuatorObservations() = ObservationPredicate { _, c ->
+        !(c is ServerRequestObservationContext && c.carrier?.requestURI?.startsWith("/actuator") == true)
+    }
+}
 
 fun main(args: Array<String>) {
     runApplication<GatewayApplication>(*args)

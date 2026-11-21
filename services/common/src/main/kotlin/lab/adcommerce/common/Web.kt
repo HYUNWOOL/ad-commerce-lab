@@ -1,10 +1,12 @@
 package lab.adcommerce.common
 
+import io.micrometer.observation.ObservationPredicate
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
+import org.springframework.http.server.observation.ServerRequestObservationContext
 import org.springframework.scheduling.annotation.EnableScheduling
 import org.springframework.web.bind.MissingRequestHeaderException
 import org.springframework.web.bind.annotation.ExceptionHandler
@@ -42,4 +44,14 @@ class CommonConfig {
     /** data class 이벤트·요청을 Jackson 3로 읽고 쓰기 위해 Kotlin 모듈을 등록한다. */
     @Bean
     fun kotlinJacksonModule(): JacksonModule = KotlinModule.Builder().build()
+
+    /**
+     * 잡음 관측을 버린다(ADR-0005). Outbox 릴레이는 200ms마다, Prometheus는 5초마다 /actuator를 부른다.
+     * 그대로 두면 실제 요청 트레이스가 빈 트레이스에 묻힌다.
+     */
+    @Bean
+    fun dropNoiseObservations() = ObservationPredicate { name, context ->
+        name != "tasks.scheduled.execution" &&
+            !(context is ServerRequestObservationContext && context.carrier?.requestURI?.startsWith("/actuator") == true)
+    }
 }

@@ -1,0 +1,12 @@
+# 서비스마다 /actuator/prometheus를 긁는다(ADR-0005). service 라벨로 구분한다.
+global:
+  scrape_interval: 5s
+scrape_configs:
+  - job_name: services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - { targets: ["gateway:8080"], labels: { service: gateway } }
+      - { targets: ["catalog:8081"], labels: { service: catalog } }
+      - { targets: ["campaign:8082"], labels: { service: campaign } }
+      - { targets: ["payment:8083"], labels: { service: payment } }
+      - { targets: ["mock-pg:8090"], labels: { service: mock-pg } }

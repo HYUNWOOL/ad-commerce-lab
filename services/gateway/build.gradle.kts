@@ -4,6 +4,8 @@ dependencies {
     implementation(platform("org.springframework.cloud:spring-cloud-dependencies:2025.1.5"))
     implementation("org.springframework.cloud:spring-cloud-starter-gateway-server-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("org.springframework.boot:spring-boot-starter-opentelemetry") { exclude(group = "io.micrometer", module = "micrometer-registry-otlp") }
+    implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("tools.jackson.module:jackson-module-kotlin")
 }
 

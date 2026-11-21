@@ -1,0 +1,71 @@
+{
+  "uid": "m2-resilience",
+  "title": "M2 장애 격리",
+  "description": "PG·catalog 장애 때 서킷·스레드·컨슈머 지연이 어떻게 움직이는지 본다(ADR-0003~0005).",
+  "schemaVersion": 39,
+  "time": { "from": "now-15m", "to": "now" },
+  "refresh": "5s",
+  "panels": [
+    {
+      "type": "timeseries", "title": "서킷 상태 (1 = 해당 상태)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "targets": [
+        { "refId": "A", "expr": "max by (service, name, state) (resilience4j_circuitbreaker_state{state=~\"open|half_open\"})", "legendFormat": "{{service}}/{{name}} {{state}}" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "서킷을 지난 호출 (초당, 결과별)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (service, name, kind) (rate(resilience4j_circuitbreaker_calls_seconds_count[30s]))", "legendFormat": "{{service}}/{{name}} {{kind}}" },
+        { "refId": "B", "expr": "sum by (service, name) (rate(resilience4j_circuitbreaker_not_permitted_calls_total[30s]))", "legendFormat": "{{service}}/{{name}} 서킷이 막음" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "PG가 받은 요청 (초당, 응답 코드별)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (method, status) (rate(http_server_requests_seconds_count{service=\"mock-pg\", uri=~\"/v1/payments.*\"}[30s]))", "legendFormat": "{{method}} {{status}}" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "서킷별 실패율·느린 호출률 (%, 50 넘으면 열림)",
+      "description": "컨슈머 지연은 Kafka UI(localhost:8089)의 Consumers 화면에서 본다. 클라이언트 records-lag 메트릭은 가져온 뒤 처리 못 한 메시지를 세지 않아 여기 두지 않았다(ADR-0005).",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "targets": [
+        { "refId": "A", "expr": "max by (service, name) (resilience4j_circuitbreaker_failure_rate) >= 0", "legendFormat": "{{service}}/{{name}} 실패율" },
+        { "refId": "B", "expr": "max by (service, name) (resilience4j_circuitbreaker_slow_call_rate) >= 0", "legendFormat": "{{service}}/{{name}} 느린 호출률" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "HTTP 응답 시간 p95 (서비스·경로별)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.95, sum by (service, method, uri, le) (rate(http_server_requests_seconds_bucket{uri!~\"/actuator.*\"}[30s])))", "legendFormat": "{{service}} {{method}} {{uri}}" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "요청 스레드 사용 중 (Tomcat busy)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "targets": [
+        { "refId": "A", "expr": "max by (service) (tomcat_threads_busy_threads)", "legendFormat": "{{service}}" },
+        { "refId": "B", "expr": "max by (service) (tomcat_threads_config_max_threads)", "legendFormat": "{{service}} 최대" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "gateway 응답 (초당, 상태 코드별)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (method, status) (rate(http_server_requests_seconds_count{service=\"gateway\", uri!~\"/actuator.*\"}[30s]))", "legendFormat": "{{method}} {{status}}" }
+      ]
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 package lab.adcommerce.common
 
+import io.micrometer.tracing.Tracer
+import io.micrometer.tracing.propagation.Propagator
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
@@ -24,19 +26,35 @@ data class EventEnvelope(
 )
 
 @Component
-class Outbox(private val jdbc: JdbcClient, private val mapper: JsonMapper) {
+class Outbox(
+    private val jdbc: JdbcClient,
+    private val mapper: JsonMapper,
+    private val tracer: Tracer,
+    private val propagator: Propagator,
+) {
 
     /** 호출한 쪽의 트랜잭션 안에서만 기록한다. 트랜잭션 밖에서 부르면 예외(상태 변경과 발행이 어긋나지 않게). */
     @Transactional(propagation = Propagation.MANDATORY)
     fun append(topic: String, type: String, aggregateId: String, payload: Any, version: Int = 1): UUID {
         val envelope = EventEnvelope(UUID.randomUUID(), type, version, Instant.now(), aggregateId, mapper.valueToTree(payload))
-        jdbc.sql("INSERT INTO outbox_events (event_id, topic, message_key, payload) VALUES (:eventId, :topic, :key, :payload)")
+        jdbc.sql(
+            "INSERT INTO outbox_events (event_id, topic, message_key, payload, trace_parent) VALUES (:eventId, :topic, :key, :payload, :traceParent)",
+        )
             .param("eventId", envelope.eventId)
             .param("topic", topic)
             .param("key", aggregateId)
             .param("payload", mapper.writeValueAsString(envelope))
+            .param("traceParent", currentTraceParent())
             .update()
         return envelope.eventId
+    }
+
+    /** 릴레이는 다른 스레드에서 돌아 지금 문맥을 모른다. 기록할 때 W3C traceparent로 남겨 둔다(ADR-0005). */
+    private fun currentTraceParent(): String? {
+        val span = tracer.currentSpan() ?: return null
+        val carrier = HashMap<String, String>()
+        propagator.inject(span.context(), carrier) { c, k, v -> c?.put(k, v) }
+        return carrier[TRACE_PARENT]
     }
 }
 
@@ -46,8 +64,10 @@ class OutboxRelay(
     private val jdbc: JdbcClient,
     private val kafka: KafkaTemplate<String, String>,
     private val tx: TransactionTemplate,
+    private val tracer: Tracer,
+    private val propagator: Propagator,
 ) {
-    private data class Row(val id: Long, val topic: String, val key: String, val payload: String)
+    private data class Row(val id: Long, val topic: String, val key: String, val payload: String, val traceParent: String?)
 
     @Scheduled(fixedDelayString = "\${outbox.relay.interval-ms:200}")
     fun relay() {
@@ -58,25 +78,39 @@ class OutboxRelay(
         // 릴레이가 여러 개 떠 있어도 같은 행을 두 번 가져가지 않는다.
         val rows = jdbc.sql(
             """
-            SELECT id, topic, message_key, payload FROM outbox_events
+            SELECT id, topic, message_key, payload, trace_parent FROM outbox_events
             WHERE published_at IS NULL ORDER BY id LIMIT :limit FOR UPDATE SKIP LOCKED
             """.trimIndent(),
         ).param("limit", limit)
-            .query { rs, _ -> Row(rs.getLong("id"), rs.getString("topic"), rs.getString("message_key"), rs.getString("payload")) }
+            .query { rs, _ -> Row(rs.getLong("id"), rs.getString("topic"), rs.getString("message_key"), rs.getString("payload"), rs.getString("trace_parent")) }
             .list()
         // 순서대로 동기 발행한다. 같은 키(집계)의 이벤트 순서를 지키기 위해서다.
-        rows.forEach { kafka.send(it.topic, it.key, it.payload).get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
+        rows.forEach(::publish)
         if (rows.isNotEmpty()) {
             jdbc.sql("UPDATE outbox_events SET published_at = now() WHERE id IN (:ids)").param("ids", rows.map { it.id }).update()
         }
         rows.size
     } ?: 0
 
+    /** 기록할 때의 트레이스를 부모로 삼아 발행한다. Kafka 헤더로 이어져 소비 쪽까지 한 트레이스가 된다. */
+    private fun publish(row: Row) {
+        val span = row.traceParent?.let { tp ->
+            propagator.extract(mapOf(TRACE_PARENT to tp)) { c, k -> c[k] }.name("outbox publish").tag("topic", row.topic).start()
+        }
+        try {
+            tracer.withSpan(span).use { kafka.send(row.topic, row.key, row.payload).get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
+        } finally {
+            span?.end()
+        }
+    }
+
     companion object {
         private const val BATCH = 100
         private const val SEND_TIMEOUT_SECONDS = 5L
     }
 }
+
+private const val TRACE_PARENT = "traceparent"
 
 @Component
 class Inbox(private val jdbc: JdbcClient) {
