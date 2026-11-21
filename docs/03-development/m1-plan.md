@@ -12,7 +12,7 @@ GitHub Milestone "M1 구매·결제 코어"(Issue #1~#8). 설계 근거는 docs/
 | #4 | campaign: 주문(멱등키)·상태 머신·Outbox·결제 결과 소비, 통합 테스트 8개 | 완료 |
 | #6 | payment: OrderPlaced 소비 → PG(트랜잭션 밖, CB) → 결과 이벤트, UNKNOWN 처리, 통합 테스트 4개 | 완료 |
 | #7 | Saga 보상: 결제 실패 → 주문 취소 | 완료(campaign 테스트) |
-| #2, #8 | compose 인프라, gateway, E2E 스모크 | 마지막 |
+| #2, #8 | compose 인프라(8개 컨테이너), gateway(API 키·라우팅), E2E 스모크 S1~S3 | 완료 — [흐름 기록](flow-m1.md) |
 
 ## 남은 구현 방향 (정해 둔 것)
 

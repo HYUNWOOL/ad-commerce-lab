@@ -6,4 +6,5 @@ include(
     "services:campaign",
     "services:payment",
     "services:mock-pg",
+    "services:gateway",
 )
