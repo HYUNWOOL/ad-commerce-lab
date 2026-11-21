@@ -63,8 +63,9 @@ stateDiagram-v2
 ## 2.5 노출·과금 (delivery 서비스, M3)
 
 - 노출 이벤트: event_id, campaign_id, placement, occurred_at.
-- 과금 단위: 캠페인별 1초 창으로 집계해 `노출 수 × cpv_price`를 남은 예산 안에서만 차감한다. 남은 예산이 단가보다 작아지면 BudgetExhausted.
-- 중복 제거: event_id를 Redis(짧은 기간) + DB 유니크(최종)로 이중 확인.
+- 과금 단위: Kafka 배치(최대 500건) 하나를 창으로 삼아, 캠페인별 `노출 수 × cpv_price`를 남은 예산 안에서만 차감한다. 남은 예산이 단가보다 작아지면 BudgetExhausted(ADR-0007).
+- 중복 제거: event_id DB 유니크(`impression_events`). Redis는 S7 실측 뒤 필요할 때 넣는다.
+- 예산·사용액의 원본은 delivery(`campaign_budgets`)다.
 
 ## 2.6 원장 (settlement 서비스, M3)
 

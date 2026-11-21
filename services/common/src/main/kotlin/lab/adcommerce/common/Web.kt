@@ -7,10 +7,13 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
 import org.springframework.http.server.observation.ServerRequestObservationContext
+import org.springframework.kafka.listener.DefaultErrorHandler
+import org.springframework.util.backoff.ExponentialBackOff
 import org.springframework.scheduling.annotation.EnableScheduling
 import org.springframework.web.bind.MissingRequestHeaderException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import tools.jackson.core.JacksonException
 import tools.jackson.databind.JacksonModule
 import tools.jackson.module.kotlin.KotlinModule
 
@@ -54,4 +57,12 @@ class CommonConfig {
         name != "tasks.scheduled.execution" &&
             !(context is ServerRequestObservationContext && context.carrier?.requestURI?.startsWith("/actuator") == true)
     }
+
+    /**
+     * 처리에 실패한 Kafka 메시지를 버리지 않는다(ADR-0007). 기본 처리기는 10번 실패하면 건너뛰는데, 결제·과금 이벤트에서는 돈이 사라진다.
+     * DB 장애 같은 일시적 실패는 1초부터 최대 10초 간격으로 계속 다시 처리하고, 형식이 깨진 JSON만 로그를 남기고 건너뛴다.
+     */
+    @Bean
+    fun kafkaErrorHandler() = DefaultErrorHandler(ExponentialBackOff(1_000, 2.0).apply { maxInterval = 10_000 })
+        .apply { addNotRetryableExceptions(JacksonException::class.java) }
 }

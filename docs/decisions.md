@@ -40,6 +40,8 @@
 | [0004](02-design/adr/0004-payment-reconcile.md) | 결과를 모르는 결제의 확정(재조회 + 같은 멱등키 재승인) |
 | [0005](02-design/adr/0005-observability.md) | 관측: OpenTelemetry 트레이스 + Prometheus 메트릭 |
 | [0006](02-design/adr/0006-defer-when-pg-unavailable.md) | PG가 받지 않은 결제는 실패 대신 보류(S4 실험 결과로 결정) |
+| [0007](02-design/adr/0007-impression-billing.md) | 노출 수집·과금: Kafka 배치를 창으로, 중복은 DB 유니크로, Redis 보류 |
+| [0008](02-design/adr/0008-double-entry-ledger.md) | 정산 원장: 복식부기, 균형은 DB 트리거가 강제 |
 
 ## D5. 강조점: 커머스·플랫폼 회사 (2026-11-21)
 - 상황: 주인이 가장 원하는 곳은 커머스·플랫폼 회사다.

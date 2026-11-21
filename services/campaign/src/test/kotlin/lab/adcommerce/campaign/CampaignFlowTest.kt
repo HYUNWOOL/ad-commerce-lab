@@ -135,6 +135,26 @@ class CampaignFlowTest {
     }
 
     @Test
+    fun `delivery의 과금 결과로 사용액을 복제하고 예산이 소진되면 EXHAUSTED로 바꾼다`() {
+        val id = orderId(order("P-SPENT", UUID.randomUUID().toString()))
+        publish("PaymentApproved", id, PaymentApproved(UUID.fromString(id), UUID.randomUUID(), 300_000, "pg-tx-2"))
+        eventually("캠페인 생성") { count("SELECT count(*) FROM campaigns WHERE order_id = :id", id) == 1 }
+        val campaignId = jdbc.sql("SELECT id FROM campaigns WHERE order_id = :id").param("id", UUID.fromString(id)).query(UUID::class.java).single()
+        fun charge(type: String, spent: Long) {
+            val envelope = EventEnvelope(UUID.randomUUID(), type, 1, Instant.now(), campaignId.toString(), mapper.valueToTree(SpentUpdate(campaignId, spent)))
+            kafka.send(Topics.CHARGE, campaignId.toString(), mapper.writeValueAsString(envelope)).get()
+        }
+        fun campaign() = jdbc.sql("SELECT spent, status FROM campaigns WHERE id = :id").param("id", campaignId)
+            .query { rs, _ -> rs.getLong("spent") to rs.getString("status") }.single()
+
+        charge("CampaignCharged", 5_000)
+        charge("CampaignCharged", 3_000) // 늦게 도착한 옛 누적값은 무시한다
+        eventually("사용액 5,000") { campaign() == (5_000L to "ACTIVE") }
+        charge("BudgetExhausted", 299_950)
+        eventually("소진") { campaign() == (299_950L to "EXHAUSTED") }
+    }
+
+    @Test
     fun `S3 결제가 실패하면 주문을 취소한다(Saga 보상)`() {
         val id = orderId(order("P-S3", UUID.randomUUID().toString()))
 

@@ -1,0 +1,20 @@
+server:
+  port: 8085
+spring:
+  application:
+    name: settlement
+  datasource:
+    url: jdbc:postgresql://localhost:5432/settlement
+    username: lab
+    password: lab
+  flyway:
+    locations: classpath:db/common,classpath:db/migration
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      auto-offset-reset: earliest
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

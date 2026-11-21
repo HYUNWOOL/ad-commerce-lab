@@ -10,3 +10,5 @@ scrape_configs:
       - { targets: ["campaign:8082"], labels: { service: campaign } }
       - { targets: ["payment:8083"], labels: { service: payment } }
       - { targets: ["mock-pg:8090"], labels: { service: mock-pg } }
+      - { targets: ["delivery:8084"], labels: { service: delivery } }
+      - { targets: ["settlement:8085"], labels: { service: settlement } }

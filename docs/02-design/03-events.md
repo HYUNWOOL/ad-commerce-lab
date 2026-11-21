@@ -35,10 +35,11 @@
 | 이벤트 | 페이로드 |
 | --- | --- |
 | OrderPlaced | orderId, partnerId, productId, amount, cpvPrice, startDate, endDate |
-| PaymentApproved | orderId, paymentId, amount, pgTransactionId |
+| PaymentApproved | orderId, paymentId, partnerId, amount, pgTransactionId |
 | PaymentFailed | orderId, paymentId, reason(`DECLINED`·`PG_UNAVAILABLE`·`UNKNOWN_EXPIRED`) |
 | CampaignActivated | campaignId, orderId, partnerId, budget, cpvPrice, startDate, endDate |
 | RefundRequested | campaignId, orderId, paymentId, refundAmount(서버 계산) |
 | RefundCompleted | orderId, paymentId, refundAmount |
-| CampaignCharged | campaignId, partnerId, windowStart, impressions, amount, spentTotal |
-| BudgetExhausted | campaignId, spentTotal |
+| ImpressionReceived | campaignId, placement, occurredAt (eventId = 노출 ID) |
+| CampaignCharged | campaignId, partnerId, chargeId, impressions(과금한 수), amount, spentTotal |
+| BudgetExhausted | campaignId, partnerId, spentTotal |

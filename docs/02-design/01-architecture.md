@@ -36,7 +36,7 @@ flowchart LR
 | catalog | 8081 | catalog | 광고 상품·지면·CPV 단가 | 읽기 위주, 변경 주기가 다르다. 장애 시 호출하는 쪽의 대체 응답을 시험할 대상 |
 | campaign | 8082 | campaign | 광고 주문·캠페인 상태 머신, 예산·기간, 환불 요청 | 주문·캠페인의 수명주기를 한 곳이 책임 |
 | payment | 8083 | payment | 결제 승인·취소, PG 장애 격리, 결과 재조회 | 외부 PG 장애를 이 서비스 안에 가두는 것이 P1의 핵심 |
-| delivery | 8084 | delivery (+Redis) | 노출 수집·집계, 과금, 예산 차감 | 처리량 요구가 다른 서비스와 크게 다르다(따로 확장) |
+| delivery | 8084 | delivery | 노출 수집·집계, 과금, 예산 차감 | 처리량 요구가 다른 서비스와 크게 다르다(따로 확장) |
 | settlement | 8085 | settlement | 원장, 정산서 | 돈의 최종 기록은 다른 서비스 장애와 분리 |
 | experience | 8086 | experience | 파트너 앱·운영 콘솔 화면 스키마(SDUI BFF) | 화면 구성의 변경 주기를 업무 서비스와 분리(P2) |
 | agent | 8000 | agent | MCP 도구, 위임 한도, 승인, 감사 로그(Python) | LLM 생태계는 Python. 에이전트 권한을 업무 서비스와 분리(P3) |
@@ -59,7 +59,7 @@ flowchart LR
 | Kafka (KRaft, 단일 브로커) | 9092 | 이벤트 |
 | Kafka UI | 8089 | 토픽·컨슈머 지연 확인 |
 | PostgreSQL 17 | 5432 | 서비스별 DB(한 인스턴스, DB 분리) |
-| Redis | 6379 | 노출 중복 제거·예산 카운터(M3) |
+| ~~Redis~~ | — | 넣지 않음. DB 유니크와 배치 UPDATE로 초당 1만 건을 처리했다(ADR-0007, S7) |
 | Toxiproxy | 8474 | PG·서비스 사이 지연·장애 주입(M2) |
 | OpenTelemetry Collector, Jaeger, Prometheus, Grafana | 4317, 16686, 9090, 3000 | 관측(M2) |
 | k6 | — | 부하 실험(M3) |

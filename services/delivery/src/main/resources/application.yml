@@ -1,0 +1,31 @@
+server:
+  port: 8084
+spring:
+  application:
+    name: delivery
+  datasource:
+    url: jdbc:postgresql://localhost:5432/delivery
+    username: lab
+    password: lab
+  flyway:
+    locations: classpath:db/common,classpath:db/migration
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      auto-offset-reset: earliest
+      max-poll-records: 500 # 배치 하나 = 과금 창 하나(ADR-0007)
+      # 배치가 작으면 과금 이벤트(CampaignCharged)가 노출 수만큼 불어난다(M3 S7 첫 실행: 노출 7건당 1건).
+      # 최대 500ms까지 기다려 배치를 채운다. 1초 창 설계(02-domain-model)를 Kafka 설정으로 구현한 셈이다.
+      fetch-min-size: 128KB
+      fetch-max-wait: 500ms
+      properties:
+        # 정적 멤버십. 죽었다 다시 뜬 같은 인스턴스가 세션 타임아웃(45초)을 기다리지 않고 자기 파티션을 바로 다시 받는다(M3 S9).
+        # 동시 컨슈머마다 Spring Kafka가 -0, -1, -2를 붙인다. 컨테이너가 다시 시작돼도 HOSTNAME은 그대로다.
+        "[group.instance.id]": delivery-${HOSTNAME:local}
+    listener:
+      concurrency: 3 # delivery.impression 파티션 3개
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

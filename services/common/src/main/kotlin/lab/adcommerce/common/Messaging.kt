@@ -13,6 +13,7 @@ import tools.jackson.databind.JsonNode
 import tools.jackson.databind.json.JsonMapper
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
 /** 모든 이벤트의 공통 봉투(docs/02-design/03-events.md). */
@@ -84,8 +85,9 @@ class OutboxRelay(
         ).param("limit", limit)
             .query { rs, _ -> Row(rs.getLong("id"), rs.getString("topic"), rs.getString("message_key"), rs.getString("payload"), rs.getString("trace_parent")) }
             .list()
-        // 순서대로 동기 발행한다. 같은 키(집계)의 이벤트 순서를 지키기 위해서다.
-        rows.forEach(::publish)
+        // 한꺼번에 보내고 모두 확인될 때까지 기다린다. 한 건씩 기다리면 초당 약 100건이 한계였다(M3 S7).
+        // 멱등 프로듀서(기본값, acks=all)라 같은 키 = 같은 파티션 안의 순서는 그대로 지켜진다.
+        rows.map(::publish).forEach { it.get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
         if (rows.isNotEmpty()) {
             jdbc.sql("UPDATE outbox_events SET published_at = now() WHERE id IN (:ids)").param("ids", rows.map { it.id }).update()
         }
@@ -93,12 +95,12 @@ class OutboxRelay(
     } ?: 0
 
     /** 기록할 때의 트레이스를 부모로 삼아 발행한다. Kafka 헤더로 이어져 소비 쪽까지 한 트레이스가 된다. */
-    private fun publish(row: Row) {
+    private fun publish(row: Row): CompletableFuture<*> {
         val span = row.traceParent?.let { tp ->
             propagator.extract(mapOf(TRACE_PARENT to tp)) { c, k -> c[k] }.name("outbox publish").tag("topic", row.topic).start()
         }
         try {
-            tracer.withSpan(span).use { kafka.send(row.topic, row.key, row.payload).get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
+            return tracer.withSpan(span).use { kafka.send(row.topic, row.key, row.payload) }
         } finally {
             span?.end()
         }

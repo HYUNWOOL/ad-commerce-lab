@@ -27,6 +27,7 @@ object Topics {
     const val ORDER = "campaign.order"
     const val LIFECYCLE = "campaign.lifecycle"
     const val PAYMENT_RESULT = "payment.result"
+    const val CHARGE = "delivery.charge"
 }
 
 @Configuration

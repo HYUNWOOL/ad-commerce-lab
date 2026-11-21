@@ -26,7 +26,7 @@ data class OrderPlaced(
     val orderId: UUID, val partnerId: String, val productId: Long, val amount: Long,
     val cpvPrice: Long, val startDate: LocalDate, val endDate: LocalDate,
 )
-data class PaymentApproved(val orderId: UUID, val paymentId: UUID, val amount: Long, val pgTransactionId: String)
+data class PaymentApproved(val orderId: UUID, val paymentId: UUID, val partnerId: String, val amount: Long, val pgTransactionId: String)
 data class PaymentFailed(val orderId: UUID, val paymentId: UUID, val reason: String)
 
 data class PaymentView(
@@ -55,7 +55,7 @@ class PaymentService(
     private val log = LoggerFactory.getLogger(javaClass)
 
     /** expired: 결제를 만든 지 give-up-after가 지났다. */
-    private data class Due(val id: UUID, val orderId: UUID, val amount: Long, val status: String, val expired: Boolean)
+    private data class Due(val id: UUID, val orderId: UUID, val partnerId: String, val amount: Long, val status: String, val expired: Boolean)
 
     /**
      * 트랜잭션 1: Inbox + 결제 생성(주문당 하나) → 트랜잭션 밖: PG 승인 → 트랜잭션 2: 상태 전이 + 결과 이벤트.
@@ -75,7 +75,7 @@ class PaymentService(
         } ?: return
 
         when (val outcome = pg.approve(paymentId, order.orderId, order.amount)) {
-            is PgOutcome.Approved, is PgOutcome.Declined -> settle(paymentId, order.orderId, order.amount, outcome)
+            is PgOutcome.Approved, is PgOutcome.Declined -> settle(paymentId, order.orderId, order.partnerId, order.amount, outcome)
             // 503·연결 실패·서킷 열림: PG가 받지 않았다. 보류해 두면 재조회가 나중에 같은 멱등키로 다시 보낸다(ADR-0006).
             PgOutcome.Unavailable -> tx.executeWithoutResult {
                 if (onUnavailable == "fail") fail(paymentId, order.orderId, "PG_UNAVAILABLE") else defer(paymentId)
@@ -117,7 +117,7 @@ class PaymentService(
     }
 
     private fun settle(p: Due, outcome: PgOutcome, how: String) {
-        settle(p.id, p.orderId, p.amount, outcome)
+        settle(p.id, p.orderId, p.partnerId, p.amount, outcome)
         log.info("결제 {} {}로 확정: {} → {}", p.id, how, p.status, outcome)
     }
 
@@ -136,14 +136,14 @@ class PaymentService(
                    OR (status = 'REQUESTED' AND updated_at < now() - make_interval(secs => :requestedAfter))
                 ORDER BY updated_at LIMIT :limit FOR UPDATE SKIP LOCKED
             )
-            RETURNING id, order_id, amount, status, created_at < now() - make_interval(secs => :giveUpAfter) AS expired
+            RETURNING id, order_id, partner_id, amount, status, created_at < now() - make_interval(secs => :giveUpAfter) AS expired
             """.trimIndent(),
         ).param("unknownAfter", unknownAfter.toMillis() / 1000.0)
             .param("requestedAfter", requestedAfter.toMillis() / 1000.0)
             .param("giveUpAfter", giveUpAfter.toMillis() / 1000.0)
             .param("limit", batch)
             .query { rs, _ ->
-                Due(rs.getObject("id", UUID::class.java), rs.getObject("order_id", UUID::class.java), rs.getLong("amount"), rs.getString("status"), rs.getBoolean("expired"))
+                Due(rs.getObject("id", UUID::class.java), rs.getObject("order_id", UUID::class.java), rs.getString("partner_id"), rs.getLong("amount"), rs.getString("status"), rs.getBoolean("expired"))
             }
             .list()
     }!!
@@ -155,12 +155,12 @@ class PaymentService(
     }
 
     /** PG가 답한 결과(승인·거절)로 확정하고 결과 이벤트를 낸다. 처음 흐름과 재조회가 같이 쓴다. */
-    private fun settle(paymentId: UUID, orderId: UUID, amount: Long, outcome: PgOutcome) = tx.executeWithoutResult {
+    private fun settle(paymentId: UUID, orderId: UUID, partnerId: String, amount: Long, outcome: PgOutcome) = tx.executeWithoutResult {
         when (outcome) {
             is PgOutcome.Approved -> if (move(paymentId, PaymentStatus.APPROVED, outcome.transactionId, null)) {
                 outbox.append(
                     Topics.PAYMENT_RESULT, "PaymentApproved", orderId.toString(),
-                    PaymentApproved(orderId, paymentId, amount, outcome.transactionId),
+                    PaymentApproved(orderId, paymentId, partnerId, amount, outcome.transactionId),
                 )
             }
             is PgOutcome.Declined -> fail(paymentId, orderId, "DECLINED")

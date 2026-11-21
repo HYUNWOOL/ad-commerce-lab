@@ -73,6 +73,8 @@ data class CampaignActivated(
     val campaignId: UUID, val orderId: UUID, val partnerId: String, val budget: Long,
     val cpvPrice: Long, val startDate: LocalDate, val endDate: LocalDate,
 )
+/** delivery가 보내는 과금 이벤트에서 화면에 필요한 값만 읽는다(사용액의 원본은 delivery, ADR-0007). */
+data class SpentUpdate(val campaignId: UUID, val spentTotal: Long)
 
 @Service
 class OrderService(
@@ -177,6 +179,25 @@ class PaymentResultListener(
             "PaymentApproved" -> orders.onPaymentApproved(mapper.treeToValue(event.payload, PaymentApproved::class.java))
             "PaymentFailed" -> orders.onPaymentFailed(mapper.treeToValue(event.payload, PaymentFailed::class.java))
         }
+    }
+}
+
+/** 과금 결과를 화면용으로 복제한다. 누적값을 받으므로 순서가 바뀌어 와도 GREATEST로 큰 값만 남긴다. */
+@Component
+class DeliveryChargeListener(private val inbox: Inbox, private val jdbc: JdbcClient, private val mapper: JsonMapper) {
+    @KafkaListener(topics = [Topics.CHARGE], groupId = "campaign")
+    @Transactional
+    fun on(message: String) {
+        val event = mapper.readValue(message, EventEnvelope::class.java)
+        if (!inbox.firstTime(event.eventId, "campaign")) return
+        val update = mapper.treeToValue(event.payload, SpentUpdate::class.java)
+        val status = if (event.type == "BudgetExhausted") "EXHAUSTED" else null
+        jdbc.sql(
+            """
+            UPDATE campaigns SET spent = GREATEST(spent, :spent), status = COALESCE(:status, status), updated_at = now()
+            WHERE id = :id
+            """.trimIndent(),
+        ).param("spent", update.spentTotal).param("status", status).param("id", update.campaignId).update()
     }
 }
 

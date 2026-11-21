@@ -14,6 +14,19 @@ spring:
                 - Path=/api/catalog/**
               filters:
                 - StripPrefix=2
+            # /api/campaigns 보다 먼저 둔다. 집행 통계의 원본은 delivery다(ADR-0007).
+            - id: campaign-stats
+              uri: ${DELIVERY_URL:http://localhost:8084}
+              predicates:
+                - Path=/api/campaigns/*/stats
+              filters:
+                - StripPrefix=1
+            - id: settlements
+              uri: ${SETTLEMENT_URL:http://localhost:8085}
+              predicates:
+                - Path=/api/settlements/**
+              filters:
+                - StripPrefix=1
             - id: orders
               uri: ${CAMPAIGN_URL:http://localhost:8082}
               predicates:
