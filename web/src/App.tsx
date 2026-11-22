@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchScreen, placeOrder } from './api';
+import { decideApproval, fetchScreen, placeOrder } from './api';
 import { clientComponents, registryFor, type ClientMode } from './sdui/components';
 import { ScreenView } from './sdui/Renderer';
 import type { Ctx, Screen } from './sdui/types';
@@ -27,7 +27,10 @@ export function App() {
     };
   }, [screenId, components, reload]);
 
-  const ctx: Ctx = { navigate: setScreenId, selectedProductId, selectProduct, placeOrder };
+  const ctx: Ctx = {
+    navigate: setScreenId, selectedProductId, selectProduct, placeOrder, decideApproval,
+    refresh: () => setReload((n) => n + 1),
+  };
 
   return (
     <div className="app">
@@ -36,6 +39,7 @@ export function App() {
         <nav>
           <button className={screenId === 'home' ? 'on' : ''} onClick={() => setScreenId('home')}>홈</button>
           <button className={screenId === 'products' ? 'on' : ''} onClick={() => setScreenId('products')}>광고 상품</button>
+          <button className={screenId === 'approvals' ? 'on' : ''} onClick={() => setScreenId('approvals')}>승인 요청</button>
         </nav>
       </header>
       <div className="toolbar">

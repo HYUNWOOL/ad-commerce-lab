@@ -33,6 +33,8 @@ class ExperienceFlowTest {
         private const val STATS = """[{"campaignId":"c-1","budget":300000,"spent":75000,"remaining":225000,"cpvPrice":50,"chargedImpressions":1500,"status":"ACTIVE"},
             {"campaignId":"c-2","budget":100000,"spent":100000,"remaining":0,"cpvPrice":50,"chargedImpressions":2000,"status":"EXHAUSTED"}]"""
         private const val SETTLEMENT = """{"partnerId":"P-1","month":"2026-11","paid":400000,"used":175000,"refunded":0,"balance":225000}"""
+        private const val APPROVALS = """[{"id":"a-1","kind":"PURCHASE","partner_id":"P-1","status":"PENDING","reason":"1회 한도 500,000원을 넘습니다(900,000원)",
+            "created_at":"2026-11-22T10:00:00Z","payload":{"mandate_id":"m-1","product_id":3,"budget":900000,"start_date":"2026-12-01","end_date":"2026-12-07"}}]"""
 
         /** 하위 서비스(catalog·delivery·settlement) 흉내. 실제 HTTP라 타임아웃·서킷도 진짜로 지난다. */
         private val stub: HttpServer = HttpServer.create(InetSocketAddress(0), 0).apply {
@@ -40,6 +42,7 @@ class ExperienceFlowTest {
             createContext("/products") { respond(it, 200, PRODUCTS) }
             createContext("/campaigns/stats") { Thread.sleep(deliveryDelayMs); respond(it, 200, STATS) }
             createContext("/settlements") { respond(it, settlementStatus, SETTLEMENT) }
+            createContext("/approvals") { respond(it, 200, if (it.requestURI.query == "status=PENDING") APPROVALS else "[]") }
             start()
         }
 
@@ -54,7 +57,7 @@ class ExperienceFlowTest {
         @DynamicPropertySource
         fun props(registry: DynamicPropertyRegistry) {
             val url = "http://localhost:${stub.address.port}"
-            listOf("catalog", "delivery", "settlement").forEach { registry.add("clients.$it.url") { url } }
+            listOf("catalog", "delivery", "settlement", "agent").forEach { registry.add("clients.$it.url") { url } }
         }
 
         const val NEW_CLIENT = "Banner@1,SettlementSummary@1,BudgetGauge@1,CampaignPerformanceList@2,ActionButton@1,ProductList@1,PurchaseForm@1,Fallback@1"
@@ -102,6 +105,17 @@ class ExperienceFlowTest {
         val first = section(home, "performance").get("props").get("items").first()
         assertThat(first.get("progressBp").asLong()).isEqualTo(2_500) // 75,000 / 300,000 = 25.00%
         assertThat(first.get("chargedImpressions").asLong()).isEqualTo(1_500)
+    }
+
+    @Test
+    fun `승인 요청 화면은 agent의 대기 중인 요청을 내려주고, 모르는 앱에는 대체 문구를 준다`() {
+        val item = section(screen("approvals", "$NEW_CLIENT,ApprovalList@1"), "approvals").get("props").get("items").single()
+        assertThat(item.get("id").asString()).isEqualTo("a-1")
+        assertThat(item.get("budget").asLong()).isEqualTo(900_000)
+        assertThat(item.get("endDate").asString()).isEqualTo("2026-12-07")
+        val old = section(screen("approvals", NEW_CLIENT), "approvals")
+        assertThat(old.get("type").asString()).isEqualTo("Fallback")
+        assertThat(old.get("props").get("message").asString()).isEqualTo("앱을 업데이트하면 승인 요청을 볼 수 있어요")
     }
 
     @Test

@@ -22,15 +22,23 @@ import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
-/** 캠페인이 켜지면 예산의 원본을 만든다(ADR-0007 3번). */
+/** 캠페인이 켜지면 예산의 원본을 만들고(ADR-0007 3번), 환불이 요청되면 과금을 닫고 환불 금액을 정한다(ADR-0011 2단계). */
 @Component
-class BudgetListener(private val jdbc: JdbcClient, private val inbox: Inbox, private val mapper: JsonMapper) {
+class BudgetListener(private val jdbc: JdbcClient, private val inbox: Inbox, private val outbox: Outbox, private val mapper: JsonMapper) {
+    private val log = LoggerFactory.getLogger(javaClass)
+
     @KafkaListener(topics = [Topics.LIFECYCLE], groupId = "delivery")
     @Transactional
     fun on(message: String) {
         val event = mapper.readValue(message, EventEnvelope::class.java)
-        if (event.type != "CampaignActivated" || !inbox.firstTime(event.eventId, "delivery")) return
-        val c = mapper.treeToValue(event.payload, CampaignActivated::class.java)
+        if (event.type !in HANDLED || !inbox.firstTime(event.eventId, "delivery")) return
+        when (event.type) {
+            "CampaignActivated" -> activate(mapper.treeToValue(event.payload, CampaignActivated::class.java))
+            "RefundRequested" -> close(mapper.treeToValue(event.payload, RefundRequested::class.java))
+        }
+    }
+
+    private fun activate(c: CampaignActivated) {
         jdbc.sql(
             """
             INSERT INTO campaign_budgets (campaign_id, partner_id, budget, cpv_price, status, start_date, end_date)
@@ -38,6 +46,33 @@ class BudgetListener(private val jdbc: JdbcClient, private val inbox: Inbox, pri
             """.trimIndent(),
         ).param("id", c.campaignId).param("partnerId", c.partnerId).param("budget", c.budget).param("cpv", c.cpvPrice)
             .param("start", c.startDate).param("end", c.endDate).update()
+    }
+
+    /**
+     * 과금과 같은 행을 잠그는 UPDATE 한 문장으로 닫는다. 닫히기 전에 들어온 과금은 사용액에 들어가고,
+     * 닫힌 뒤의 노출은 WHERE status = 'ACTIVE'에 걸려 과금되지 않는다. 환불 금액은 이 순간에만 정해진다.
+     */
+    private fun close(r: RefundRequested) {
+        val closed = jdbc.sql(
+            """
+            UPDATE campaign_budgets SET status = 'CLOSED', updated_at = now()
+            WHERE campaign_id = :id AND status IN ('ACTIVE', 'EXHAUSTED')
+            RETURNING budget, spent
+            """.trimIndent(),
+        ).param("id", r.campaignId).query { rs, _ -> rs.getLong("budget") to rs.getLong("spent") }.optional().orElse(null)
+        if (closed == null) {
+            log.warn("캠페인 {} 의 예산을 닫지 못함(없거나 이미 닫힘)", r.campaignId)
+            return
+        }
+        val (budget, spent) = closed
+        outbox.append(
+            Topics.BUDGET, "RefundAmountFixed", r.campaignId.toString(),
+            RefundAmountFixed(r.campaignId, r.orderId, r.partnerId, refundAmount = budget - spent, spentTotal = spent),
+        )
+    }
+
+    private companion object {
+        val HANDLED = setOf("CampaignActivated", "RefundRequested")
     }
 }
 

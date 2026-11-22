@@ -8,7 +8,13 @@ import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.mock.web.MockHttpServletResponse
 
 class ApiKeyFilterTest {
-    private val filter = ApiKeyFilter(ApiKeys(mapOf("partner-key" to "P-1"), mapOf("operator-key" to "ops-1")))
+    private val filter = ApiKeyFilter(
+        ApiKeys(
+            mapOf("partner-key" to "P-1"),
+            mapOf("operator-key" to "ops-1"),
+            mapOf("agent-key" to "partner:P-1", "ops-agent-key" to "operator:ops-1"),
+        ),
+    )
 
     /** 필터를 통과하면 뒤로 넘어간 요청을, 막히면 null과 응답 코드를 돌려준다. */
     private fun call(path: String, key: String?, vararg spoofed: Pair<String, String>): Pair<Int, HttpServletRequest?> {
@@ -44,6 +50,18 @@ class ApiKeyFilterTest {
         assertThat(call("/api/admin/screens/home", "partner-key")).isEqualTo(403 to null)
         assertThat(call("/api/orders", "operator-key")).isEqualTo(401 to null)
         assertThat(call("/api/orders", null)).isEqualTo(401 to null)
+    }
+
+    @Test
+    fun `에이전트 키는 자기 MCP 경로만 통과하고, 승인 REST에는 닿지 않는다`() {
+        val (status, passed) = call("/api/agent/mcp/partner", "agent-key", "X-Partner-Id" to "P-OTHER")
+        assertThat(status).isEqualTo(200)
+        assertThat(passed!!.getHeader("X-Partner-Id")).isEqualTo("P-1")
+        assertThat(call("/api/admin/agent/mcp/ops", "ops-agent-key").second!!.getHeader("X-Operator-Id")).isEqualTo("ops-1")
+        assertThat(call("/api/agent/approvals/a-1/approve", "agent-key")).isEqualTo(403 to null)
+        assertThat(call("/api/admin/agent/approvals/a-1/approve", "ops-agent-key")).isEqualTo(403 to null)
+        assertThat(call("/api/admin/agent/mcp/ops", "agent-key")).isEqualTo(403 to null)
+        assertThat(call("/api/orders", "agent-key")).isEqualTo(403 to null)
     }
 
     @Test

@@ -25,6 +25,8 @@ data class Product(
     val minBudget: Long,
     val maxDays: Int,
     val active: Boolean,
+    /** 판매자가 쓰는 설명. 에이전트가 읽는 "바깥 글"이라 주입 문구가 섞일 수 있다(S16). */
+    val description: String,
 )
 
 @RestController

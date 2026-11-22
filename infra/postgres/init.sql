@@ -5,3 +5,4 @@ CREATE DATABASE payment;
 CREATE DATABASE delivery;
 CREATE DATABASE settlement;
 CREATE DATABASE experience;
+CREATE DATABASE agent;

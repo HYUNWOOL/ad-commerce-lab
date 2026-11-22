@@ -28,6 +28,7 @@ fun main(args: Array<String>) {
 object Topics {
     const val IMPRESSION = "delivery.impression"
     const val CHARGE = "delivery.charge"
+    const val BUDGET = "delivery.budget"
     const val LIFECYCLE = "campaign.lifecycle"
 }
 
@@ -35,6 +36,7 @@ object Topics {
 class KafkaTopics {
     @Bean fun impressionTopic() = TopicBuilder.name(Topics.IMPRESSION).partitions(3).build()
     @Bean fun chargeTopic() = TopicBuilder.name(Topics.CHARGE).partitions(3).build()
+    @Bean fun budgetTopic() = TopicBuilder.name(Topics.BUDGET).partitions(3).build()
 }
 
 // 이벤트 페이로드(docs/02-design/03-events.md)
@@ -48,6 +50,9 @@ data class CampaignCharged(
     val impressions: Long, val amount: Long, val spentTotal: Long,
 )
 data class BudgetExhausted(val campaignId: UUID, val partnerId: String, val spentTotal: Long)
+data class RefundRequested(val campaignId: UUID, val orderId: UUID, val partnerId: String)
+/** 환불 금액 확정(ADR-0011). 과금을 닫은 순간의 남은 예산이다. */
+data class RefundAmountFixed(val campaignId: UUID, val orderId: UUID, val partnerId: String, val refundAmount: Long, val spentTotal: Long)
 
 /** 광고 서버가 보내는 노출 한 건. eventId는 광고 서버가 만든다(같은 노출을 다시 보내면 같은 ID). */
 data class Impression(val eventId: UUID, val campaignId: UUID, val placement: String, val occurredAt: Instant)

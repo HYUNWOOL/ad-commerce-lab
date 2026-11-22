@@ -155,6 +155,34 @@ class CampaignFlowTest {
     }
 
     @Test
+    fun `운영 환불은 집행 중인 캠페인만 시작하고, 같은 멱등키는 같은 응답, 환불 완료 이벤트로 REFUNDED가 된다`() {
+        val id = orderId(order("P-REFUND", UUID.randomUUID().toString()))
+        publish("PaymentApproved", id, PaymentApproved(UUID.fromString(id), UUID.randomUUID(), 300_000, "pg-tx-3"))
+        eventually("캠페인 생성") { count("SELECT count(*) FROM campaigns WHERE order_id = :id", id) == 1 }
+        val campaignId = jdbc.sql("SELECT id FROM campaigns WHERE order_id = :id").param("id", UUID.fromString(id)).query(UUID::class.java).single()
+        fun refund(target: UUID, key: String) = http.post().uri("/ops/campaigns/{id}/refund", target)
+            .header("X-Operator-Id", "ops-1").header("Idempotency-Key", key).retrieve().toEntity(String::class.java).statusCode.value()
+
+        assertThat(refund(campaignId, "refund-1")).isEqualTo(202)
+        assertThat(refund(campaignId, "refund-1")).isEqualTo(200) // 같은 멱등키 재시도
+        assertThat(refund(campaignId, "refund-2")).isEqualTo(409) // 이미 환불 중
+        assertThat(refund(UUID.randomUUID(), "refund-3")).isEqualTo(404)
+        assertThat(
+            jdbc.sql("SELECT count(*) FROM outbox_events WHERE topic = 'campaign.lifecycle' AND message_key = :id AND payload LIKE '%RefundRequested%'")
+                .param("id", campaignId.toString()).query(Int::class.java).single(),
+        ).isEqualTo(1)
+
+        val completed = EventEnvelope(
+            UUID.randomUUID(), "RefundCompleted", 1, Instant.now(), id,
+            mapper.valueToTree(RefundCompleted(UUID.fromString(id), UUID.randomUUID(), "P-REFUND", 180_000)),
+        )
+        kafka.send(Topics.PAYMENT_REFUND, id, mapper.writeValueAsString(completed)).get()
+        eventually("REFUNDED") {
+            jdbc.sql("SELECT status || ':' || refunded_amount FROM campaigns WHERE id = :id").param("id", campaignId).query(String::class.java).single() == "REFUNDED:180000"
+        }
+    }
+
+    @Test
     fun `S3 결제가 실패하면 주문을 취소한다(Saga 보상)`() {
         val id = orderId(order("P-S3", UUID.randomUUID().toString()))
 

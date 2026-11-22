@@ -32,6 +32,7 @@ fun main(args: Array<String>) {
 object Topics {
     const val PAYMENT_RESULT = "payment.result"
     const val CHARGE = "delivery.charge"
+    const val PAYMENT_REFUND = "payment.refund"
 }
 
 // 이벤트 페이로드(docs/02-design/03-events.md)
@@ -40,6 +41,8 @@ data class CampaignCharged(
     val campaignId: UUID, val partnerId: String, val chargeId: UUID,
     val impressions: Long, val amount: Long, val spentTotal: Long,
 )
+
+data class RefundCompleted(val orderId: UUID, val paymentId: UUID, val partnerId: String, val refundAmount: Long)
 
 enum class Account { PG_RECEIVABLE, PARTNER_PREPAID, AD_REVENUE }
 
@@ -85,6 +88,20 @@ class LedgerListener(private val ledger: Ledger, private val inbox: Inbox, priva
         )
     }
 
+    /** 부분 환불(ADR-0011): 남은 선수금을 PG로 돌려준다. 0원 환불(예산을 다 쓴 캠페인)은 적을 것이 없다. */
+    @KafkaListener(topics = [Topics.PAYMENT_REFUND], groupId = "settlement")
+    @Transactional
+    fun onRefund(message: String) {
+        val event = mapper.readValue(message, EventEnvelope::class.java)
+        if (event.type != "RefundCompleted" || !inbox.firstTime(event.eventId, "settlement")) return
+        val r = mapper.treeToValue(event.payload, RefundCompleted::class.java)
+        if (r.refundAmount == 0L) return
+        ledger.post(
+            event.eventId, r.partnerId, "REFUND", event.occurredAt,
+            Line(Account.PARTNER_PREPAID, debit = r.refundAmount), Line(Account.PG_RECEIVABLE, credit = r.refundAmount),
+        )
+    }
+
     /** 노출 과금: 선수금이 매출로 바뀐다. */
     @KafkaListener(topics = [Topics.CHARGE], groupId = "settlement")
     @Transactional
@@ -99,7 +116,7 @@ class LedgerListener(private val ledger: Ledger, private val inbox: Inbox, priva
     }
 }
 
-/** 파트너 월 정산서. 환불은 결제 서비스에 아직 없어 0이다(ADR-0008 3번). */
+/** 파트너 월 정산서. 결제액·사용액·환불액은 그달, 잔액은 월말까지의 선수금 누계다(ADR-0008, ADR-0011). */
 data class Statement(val partnerId: String, val month: String, val paid: Long, val used: Long, val refunded: Long, val balance: Long)
 
 @RestController
@@ -120,12 +137,13 @@ class SettlementController(private val jdbc: JdbcClient) {
             SELECT
               COALESCE(SUM(l.credit) FILTER (WHERE e.kind = 'PAYMENT' AND e.occurred_at >= :start AND e.occurred_at < :end), 0) AS paid,
               COALESCE(SUM(l.debit)  FILTER (WHERE e.kind = 'CHARGE'  AND e.occurred_at >= :start AND e.occurred_at < :end), 0) AS used,
+              COALESCE(SUM(l.debit)  FILTER (WHERE e.kind = 'REFUND'  AND e.occurred_at >= :start AND e.occurred_at < :end), 0) AS refunded,
               COALESCE(SUM(l.credit - l.debit) FILTER (WHERE e.occurred_at < :end), 0) AS balance
             FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
             WHERE l.account = 'PARTNER_PREPAID' AND l.partner_id = :partnerId
             """.trimIndent(),
         ).param("start", start).param("end", end).param("partnerId", partnerId)
-            .query { rs, _ -> Statement(partnerId, ym.toString(), rs.getLong("paid"), rs.getLong("used"), 0, rs.getLong("balance")) }
+            .query { rs, _ -> Statement(partnerId, ym.toString(), rs.getLong("paid"), rs.getLong("used"), rs.getLong("refunded"), rs.getLong("balance")) }
             .single()
     }
 

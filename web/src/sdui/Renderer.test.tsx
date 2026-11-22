@@ -1,10 +1,13 @@
-import { cleanup, render, screen as view } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen as view, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clientComponents, registryFor, type UiComponent } from './components';
 import { ScreenView } from './Renderer';
 import type { Ctx, Screen } from './types';
 
-const ctx: Ctx = { navigate: vi.fn(), selectedProductId: null, selectProduct: vi.fn(), placeOrder: vi.fn() };
+const ctx: Ctx = {
+  navigate: vi.fn(), selectedProductId: null, selectProduct: vi.fn(), placeOrder: vi.fn(),
+  decideApproval: vi.fn(async () => ({ ok: true as const, status: 'EXECUTED' })), refresh: vi.fn(),
+};
 
 function screenOf(...sections: Screen['sections']): Screen {
   return { screenId: 'home', revision: 1, title: '내 광고', generatedAt: '', sections };
@@ -83,9 +86,30 @@ describe('ScreenView', () => {
   });
 });
 
+describe('ApprovalList', () => {
+  it('승인을 누르면 그 요청을 승인하고 화면을 다시 받는다', async () => {
+    render(
+      <ScreenView
+        ctx={ctx}
+        components={registryFor('new')}
+        screen={screenOf({
+          id: 'approvals', type: 'ApprovalList', version: 1,
+          props: { title: '기다리는 요청', items: [{ id: 'a-1', productId: 3, budget: 900000, startDate: '2026-12-01', endDate: '2026-12-07', reason: '1회 한도를 넘습니다' }] },
+        })}
+      />,
+    );
+    expect(view.getByText(/900,000원/)).toBeTruthy();
+    fireEvent.click(view.getByText('승인'));
+    await waitFor(() => expect(view.getByText('승인해서 주문했어요')).toBeTruthy());
+    expect(ctx.decideApproval).toHaveBeenCalledWith('a-1', 'approve');
+    expect(ctx.refresh).toHaveBeenCalled();
+  });
+});
+
 describe('clientComponents', () => {
   it('구버전 앱은 BudgetGauge를 모르고 성과 목록은 v1까지만 안다고 알린다', () => {
     expect(clientComponents(registryFor('old'))).not.toContain('BudgetGauge');
+    expect(clientComponents(registryFor('old'))).not.toContain('ApprovalList');
     expect(clientComponents(registryFor('old'))).toContain('CampaignPerformanceList@1');
     expect(clientComponents(registryFor('new'))).toContain('BudgetGauge@1');
     expect(clientComponents(registryFor('new'))).toContain('CampaignPerformanceList@2');

@@ -70,6 +70,7 @@ button.primary { border: 0; background: var(--accent); color: white; }
 button.primary:disabled { background: #9db7f5; cursor: default; }
 button.secondary { border: 1px solid var(--accent); background: var(--card); color: var(--accent); }
 .result { font-size: 13px; margin: 10px 0 0; }
+.actions { display: flex; gap: 8px; margin-top: 6px; }
 
 .fallback { background: #f9fafb; border: 1px dashed #d1d5db; box-shadow: none; }
 .fallback p { margin: 0; color: var(--muted); font-size: 14px; }

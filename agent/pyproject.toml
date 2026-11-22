@@ -1,0 +1,25 @@
+[project]
+name = "ad-commerce-agent"
+version = "0.1.0"
+description = "AI 에이전트용 MCP 도구 서버. 위임 한도·승인·멱등·감사는 서버 코드가 결정한다(ADR-0010)."
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "mcp==2.3.0",
+    "fastapi==0.165.0",
+    "uvicorn==0.54.0",
+    "httpx2==2.16.2",
+    "psycopg[binary]==3.3.9",
+    "psycopg-pool==3.3.3",
+    "alembic==1.20.1",
+    "pydantic==2.14.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.2.0",
+    "testcontainers[postgres]==4.15.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

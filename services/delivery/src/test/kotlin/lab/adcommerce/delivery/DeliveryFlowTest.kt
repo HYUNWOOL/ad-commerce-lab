@@ -103,6 +103,32 @@ class DeliveryFlowTest {
     }
 
     @Test
+    fun `환불이 요청되면 과금을 닫고 그 순간의 남은 예산을 환불 금액으로 한 번 확정한다`() {
+        val campaignId = activate(300_000, 50)
+        post(impressions(campaignId, 100))
+        eventually("5,000원 과금") { spent(campaignId) == 5_000L }
+
+        val orderId = UUID.randomUUID()
+        val refund = EventEnvelope(
+            UUID.randomUUID(), "RefundRequested", 1, Instant.now(), campaignId.toString(),
+            mapper.valueToTree(RefundRequested(campaignId, orderId, "P-1")),
+        )
+        kafka.send(Topics.LIFECYCLE, campaignId.toString(), mapper.writeValueAsString(refund)).get()
+        eventually("CLOSED") { jdbc.sql("SELECT status FROM campaign_budgets WHERE campaign_id = :id").param("id", campaignId).query(String::class.java).single() == "CLOSED" }
+
+        val fixed = jdbc.sql("SELECT payload FROM outbox_events WHERE topic = 'delivery.budget' AND message_key = :id").param("id", campaignId.toString())
+            .query(String::class.java).list().filterNotNull().map { mapper.readTree(it).get("payload") }
+        assertThat(fixed).hasSize(1)
+        assertThat(fixed.first().get("refundAmount").asLong()).isEqualTo(295_000)
+        assertThat(fixed.first().get("orderId").asString()).isEqualTo(orderId.toString())
+
+        post(impressions(campaignId, 50)) // 닫힌 뒤의 노출
+        eventually("기록") { received(campaignId) == 150 }
+        Thread.sleep(500)
+        assertThat(spent(campaignId)).isEqualTo(5_000) // 과금되지 않는다
+    }
+
+    @Test
     fun `모르는 캠페인의 노출은 기록만 하고 과금하지 않는다`() {
         val unknown = UUID.randomUUID()
         post(impressions(unknown, 5))

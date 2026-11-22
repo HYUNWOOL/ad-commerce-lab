@@ -147,6 +147,45 @@ function PurchaseForm({ props, ctx }: { props: Props; ctx: Ctx }) {
   );
 }
 
+const DECIDED: Record<string, string> = { EXECUTED: '승인해서 주문했어요', REJECTED: '거절했어요', FAILED: '승인했지만 주문이 거절됐어요' };
+
+/** 에이전트가 위임 한도를 넘어 만든 승인 요청. 승인·거절은 사람만 누른다(ADR-0010 4번). 처리하면 화면을 다시 받는다. */
+function ApprovalList({ props, ctx }: { props: Props; ctx: Ctx }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function decide(id: string, action: 'approve' | 'reject') {
+    setBusy(true);
+    const result = await ctx.decideApproval(id, action);
+    setBusy(false);
+    setMessage(result.ok ? (DECIDED[result.status] ?? result.status) : result.message);
+    if (result.ok) ctx.refresh();
+  }
+
+  return (
+    <div className="card">
+      <h2>{props.title}</h2>
+      {props.items.length === 0 && <p className="muted">기다리는 요청이 없어요</p>}
+      <ul className="campaigns">
+        {props.items.map((a: Props) => (
+          <li key={a.id}>
+            <div className="row">
+              <span>상품 {a.productId} · {won(a.budget)}</span>
+              <span className="muted">{a.startDate} ~ {a.endDate}</span>
+            </div>
+            <p className="muted">{a.reason}</p>
+            <div className="actions">
+              <button className="primary" disabled={busy} onClick={() => decide(a.id, 'approve')}>승인</button>
+              <button className="secondary" disabled={busy} onClick={() => decide(a.id, 'reject')}>거절</button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {message && <p className="result">{message}</p>}
+    </div>
+  );
+}
+
 function ActionButton({ label, screen }: Props, ctx: Ctx) {
   return (
     <button className="secondary" onClick={() => ctx.navigate(screen)}>
@@ -173,15 +212,16 @@ const ALL: Record<string, UiComponent> = {
   ActionButton: { version: 1, render: (p, ctx) => ActionButton(p, ctx) },
   ProductList: { version: 1, render: (p, ctx) => ProductList(p, ctx) },
   PurchaseForm: { version: 1, render: (p, ctx) => <PurchaseForm props={p} ctx={ctx} /> },
+  ApprovalList: { version: 1, render: (p, ctx) => <ApprovalList props={p} ctx={ctx} /> },
   Fallback: { version: 1, render: (p) => <Fallback {...p} /> },
 };
 
 export type ClientMode = 'new' | 'old';
 
-/** old는 BudgetGauge가 생기기 전, 성과 목록 v1까지만 아는 앱이다(S11 흉내). */
+/** old는 BudgetGauge·ApprovalList가 생기기 전, 성과 목록 v1까지만 아는 앱이다(S11 흉내). */
 export function registryFor(mode: ClientMode): Record<string, UiComponent> {
   if (mode === 'new') return ALL;
-  const { BudgetGauge: _removed, ...rest } = ALL;
+  const { BudgetGauge: _gauge, ApprovalList: _approvals, ...rest } = ALL;
   return { ...rest, CampaignPerformanceList: { ...ALL.CampaignPerformanceList, version: 1 } };
 }
 

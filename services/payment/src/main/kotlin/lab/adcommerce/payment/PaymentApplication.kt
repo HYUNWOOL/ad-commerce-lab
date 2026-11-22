@@ -30,11 +30,14 @@ fun main(args: Array<String>) {
 object Topics {
     const val ORDER = "campaign.order"
     const val PAYMENT_RESULT = "payment.result"
+    const val PAYMENT_REFUND = "payment.refund"
+    const val BUDGET = "delivery.budget"
 }
 
 @Configuration
 class KafkaTopics {
     @Bean fun paymentResultTopic() = TopicBuilder.name(Topics.PAYMENT_RESULT).partitions(3).build()
+    @Bean fun paymentRefundTopic() = TopicBuilder.name(Topics.PAYMENT_REFUND).partitions(3).build()
 }
 
 /** PG 승인 결과. 타임아웃은 "실패"가 아니라 "모름"이다(P1). */
@@ -52,6 +55,9 @@ interface PgClient {
 
     /** 멱등키(결제 ID)로 PG의 결제를 조회한다. null이면 PG에 그 결제가 없다(ADR-0004). */
     fun find(paymentId: UUID): PgOutcome?
+
+    /** 부분 취소. 같은 멱등키(환불 ID)로 다시 불러도 PG는 한 번만 취소한다. 실패하면 예외를 던진다(ADR-0011). */
+    fun cancel(transactionId: String, amount: Long, idempotencyKey: UUID)
 }
 
 data class PgResponse(val transactionId: String, val status: String, val reason: String?) {
@@ -85,6 +91,15 @@ class HttpPgClient(
             .body(PgResponse::class.java)!!
             .toOutcome()
     }!!
+
+    // 실패(PG 장애·서킷 열림)는 예외 그대로 던진다. 리스너가 다시 받아 같은 멱등키로 재시도한다.
+    override fun cancel(transactionId: String, amount: Long, idempotencyKey: UUID) = approveBreaker.executeRunnable {
+        rest.post().uri("/v1/payments/{tx}/cancel", transactionId)
+            .header("Idempotency-Key", idempotencyKey.toString())
+            .body(mapOf("amount" to amount))
+            .retrieve()
+            .toBodilessEntity()
+    }
 
     override fun find(paymentId: UUID): PgOutcome? = call(queryBreaker) {
         val response = rest.get().uri("/v1/payments/{key}", paymentId).retrieve()

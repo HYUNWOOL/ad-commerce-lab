@@ -32,9 +32,16 @@ fun main(args: Array<String>) {
     runApplication<GatewayApplication>(*args)
 }
 
-/** API 키 → 파트너 ID, 운영자 키 → 운영자 ID. 회원 시스템 대신 정적 키를 쓴다(기획 범위). */
+/**
+ * API 키 → 파트너 ID, 운영자 키 → 운영자 ID. 회원 시스템 대신 정적 키를 쓴다(기획 범위).
+ * 에이전트 키 → "partner:P-1" 또는 "operator:ops-1". 에이전트 키는 MCP 도구 경로만 통과한다(ADR-0010 4번).
+ */
 @ConfigurationProperties("gateway")
-data class ApiKeys(val apiKeys: Map<String, String> = emptyMap(), val operatorKeys: Map<String, String> = emptyMap())
+data class ApiKeys(
+    val apiKeys: Map<String, String> = emptyMap(),
+    val operatorKeys: Map<String, String> = emptyMap(),
+    val agentKeys: Map<String, String> = emptyMap(),
+)
 
 /**
  * /api 아래 요청은 X-Api-Key를 확인하고, 내부 서비스가 믿을 신원 헤더를 하나만 붙인다.
@@ -49,12 +56,25 @@ class ApiKeyFilter(private val keys: ApiKeys) : OncePerRequestFilter() {
 
     override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
         val key = request.getHeader("X-Api-Key")
+        key?.let { keys.agentKeys[it] }?.let { return agent(it, request, response, chain) }
         val admin = request.requestURI.startsWith("/api/admin/")
         val identity = key?.let { if (admin) keys.operatorKeys[it] else keys.apiKeys[it] }
         when {
             identity != null -> chain.doFilter(IdentityRequest(request, if (admin) OPERATOR else PARTNER, identity), response)
             admin && key != null && keys.apiKeys.containsKey(key) -> problem(response, 403, "운영자 키가 필요합니다")
             else -> problem(response, 401, "유효한 X-Api-Key가 필요합니다")
+        }
+    }
+
+    /** 에이전트는 자기 몫의 MCP 엔드포인트 하나만 부른다. 승인 REST처럼 사람만 쓰는 경로에는 닿지 않는다. */
+    private fun agent(identity: String, request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
+        val (kind, id) = identity.split(":", limit = 2)
+        when {
+            kind == "partner" && request.requestURI == "/api/agent/mcp/partner" ->
+                chain.doFilter(IdentityRequest(request, PARTNER, id), response)
+            kind == "operator" && request.requestURI == "/api/admin/agent/mcp/ops" ->
+                chain.doFilter(IdentityRequest(request, OPERATOR, id), response)
+            else -> problem(response, 403, "에이전트 키로는 MCP 도구 경로만 부를 수 있습니다")
         }
     }
 

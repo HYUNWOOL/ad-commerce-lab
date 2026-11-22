@@ -52,6 +52,7 @@ data class Chaos(val delayMs: Long = 0, val failureRate: Double = 0.0)
 @RestController
 class PgController {
     private val payments = ConcurrentHashMap<String, PgPayment>()
+    private val cancels = ConcurrentHashMap<String, PgPayment>()
 
     @Volatile
     private var chaos = Chaos()
@@ -77,15 +78,23 @@ class PgController {
     fun find(@PathVariable key: String): ResponseEntity<PgPayment> =
         payments[key]?.let { ResponseEntity.ok(it) } ?: ResponseEntity.notFound().build()
 
+    /** 부분 취소. 같은 Idempotency-Key로 다시 오면 처음 결과를 돌려준다(두 번 환불되지 않게, ADR-0011). */
     @PostMapping("/v1/payments/{transactionId}/cancel")
-    fun cancel(@PathVariable transactionId: String, @RequestBody request: CancelRequest): ResponseEntity<Any> {
+    @Synchronized
+    fun cancel(
+        @PathVariable transactionId: String,
+        @RequestHeader("Idempotency-Key", required = false) key: String?,
+        @RequestBody request: CancelRequest,
+    ): ResponseEntity<Any> {
+        key?.let { cancels[it] }?.let { return ResponseEntity.ok(it) }
         val entry = payments.entries.firstOrNull { it.value.transactionId == transactionId } ?: return ResponseEntity.notFound().build()
         val current = entry.value
-        if (current.status != "APPROVED" || current.cancelledAmount + request.amount > current.amount) {
+        if (current.status != "APPROVED" || request.amount <= 0 || current.cancelledAmount + request.amount > current.amount) {
             return ResponseEntity.unprocessableEntity().body(mapOf("code" to "INVALID_CANCEL_AMOUNT"))
         }
         val updated = current.copy(cancelledAmount = current.cancelledAmount + request.amount)
         payments[entry.key] = updated
+        key?.let { cancels[it] = updated }
         return ResponseEntity.ok(updated)
     }
 

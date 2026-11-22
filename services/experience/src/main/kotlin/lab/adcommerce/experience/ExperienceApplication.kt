@@ -60,7 +60,7 @@ data class Screen(val screenId: String, val revision: Int, val title: String, va
 data class Section(val id: String, val type: String, val version: Int, val props: Map<String, Any?>)
 
 /** 데이터를 가져올 하위 서비스. 화면 하나가 쓰는 출처를 병렬로 부른다. */
-enum class Source(val service: String) { SETTLEMENT("settlement"), CAMPAIGN_STATS("delivery"), PRODUCTS("catalog") }
+enum class Source(val service: String) { SETTLEMENT("settlement"), CAMPAIGN_STATS("delivery"), PRODUCTS("catalog"), APPROVALS("agent") }
 
 /** 서버가 아는 컴포넌트. required는 설정에 꼭 있어야 하는 문구(저장할 때 검사). */
 enum class UiComponent(val maxVersion: Int, val source: Source?, val required: List<String> = emptyList()) {
@@ -71,6 +71,8 @@ enum class UiComponent(val maxVersion: Int, val source: Source?, val required: L
     ActionButton(1, null, listOf("label", "screen")),
     ProductList(1, Source.PRODUCTS, listOf("title")),
     PurchaseForm(1, null, listOf("title", "submitLabel")),
+    /** 에이전트가 만든 승인 요청(ADR-0010 4번). 승인·거절 버튼은 사람이 누른다. */
+    ApprovalList(1, Source.APPROVALS, listOf("title")),
     Fallback(1, null),
     ;
 
@@ -123,9 +125,10 @@ class Sources(
     @Value("\${clients.catalog.url}") catalogUrl: String,
     @Value("\${clients.delivery.url}") deliveryUrl: String,
     @Value("\${clients.settlement.url}") settlementUrl: String,
+    @Value("\${clients.agent.url}") agentUrl: String,
     @Value("\${clients.read-timeout:1s}") readTimeout: Duration,
 ) {
-    private val clients = mapOf("catalog" to catalogUrl, "delivery" to deliveryUrl, "settlement" to settlementUrl).mapValues { (_, url) ->
+    private val clients = mapOf("catalog" to catalogUrl, "delivery" to deliveryUrl, "settlement" to settlementUrl, "agent" to agentUrl).mapValues { (_, url) ->
         builder.clone().baseUrl(url)
             .requestFactory(
                 JdkClientHttpRequestFactory(HttpClient.newBuilder().connectTimeout(Duration.ofMillis(500)).build())
@@ -142,6 +145,7 @@ class Sources(
                 Source.SETTLEMENT -> rest.get().uri("/settlements?month={m}", YearMonth.now(SEOUL)).header("X-Partner-Id", partnerId)
                 Source.CAMPAIGN_STATS -> rest.get().uri("/campaigns/stats").header("X-Partner-Id", partnerId)
                 Source.PRODUCTS -> rest.get().uri("/products")
+                Source.APPROVALS -> rest.get().uri("/approvals?status=PENDING").header("X-Partner-Id", partnerId)
             }.retrieve().body(JsonNode::class.java)!!
         }
     }
@@ -247,6 +251,16 @@ class ScreenService(
                         put("progressBp", s.get("spent").asLong() * 10_000 / s.get("budget").asLong()) // 사용률(1만분율)
                     }
                 }
+            },
+        )
+        UiComponent.ApprovalList -> mapOf(
+            "items" to node!!.values().map { a ->
+                val p = a.get("payload")
+                mapOf(
+                    "id" to a.get("id").asString(), "reason" to a.get("reason").asString(), "createdAt" to a.get("created_at").asString(),
+                    "productId" to p.get("product_id").asLong(), "budget" to p.get("budget").asLong(),
+                    "startDate" to p.get("start_date").asString(), "endDate" to p.get("end_date").asString(),
+                )
             },
         )
         UiComponent.ProductList -> mapOf(

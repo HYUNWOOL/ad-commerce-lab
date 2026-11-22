@@ -42,4 +42,4 @@
 | --- | --- |
 | M3 | POST /api/impressions(대량 수집), GET /api/campaigns/{id}/stats, GET /api/settlements?partnerId=&month= |
 | M4 | GET /api/screens/{screenId}(SDUI 스키마, `X-Client-Components` 헤더로 지원 컴포넌트·버전 전달), PUT /admin/screens/{screenId} |
-| M5 | MCP 도구(agent), POST /api/approvals/{id}/approve, GET /api/approvals?status=PENDING |
+| M5 | MCP 도구: `/api/agent/mcp/partner`(list_products, get_my_mandate, place_order, list_my_campaigns), `/api/admin/agent/mcp/ops`(get_settlement, quote_refund, request_refund). 사람용 REST: POST·GET /api/agent/mandates, POST /api/agent/mandates/{id}/revoke, GET /api/agent/approvals?status=PENDING, POST /api/agent/approvals/{id}/approve·reject(파트너: 구매 승인), 같은 승인 API를 /api/admin/agent 아래(운영자: 환불 승인), GET /api/admin/agent/audit. 운영 환불 API(내부): POST /ops/campaigns/{id}/refund. 에이전트 키는 MCP 경로 두 곳만 통과한다(ADR-0010) |

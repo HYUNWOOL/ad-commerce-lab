@@ -26,7 +26,8 @@
 | campaign.order | OrderPlaced | campaign | payment | orderId |
 | payment.result | PaymentApproved, PaymentFailed | payment | campaign, settlement | orderId |
 | payment.refund | RefundCompleted | payment | campaign, settlement | orderId |
-| campaign.lifecycle | CampaignActivated, CampaignPaused, CampaignResumed, RefundRequested | campaign | delivery, payment | campaignId |
+| campaign.lifecycle | CampaignActivated, CampaignPaused, CampaignResumed, RefundRequested | campaign | delivery | campaignId |
+| delivery.budget | RefundAmountFixed(ADR-0011) | delivery | payment | campaignId |
 | delivery.impression | ImpressionReceived(원시) | delivery 수집 API | delivery 집계 | campaignId |
 | delivery.charge | CampaignCharged, BudgetExhausted | delivery | campaign, settlement | campaignId |
 
@@ -38,8 +39,9 @@
 | PaymentApproved | orderId, paymentId, partnerId, amount, pgTransactionId |
 | PaymentFailed | orderId, paymentId, reason(`DECLINED`·`PG_UNAVAILABLE`·`UNKNOWN_EXPIRED`) |
 | CampaignActivated | campaignId, orderId, partnerId, budget, cpvPrice, startDate, endDate |
-| RefundRequested | campaignId, orderId, paymentId, refundAmount(서버 계산) |
-| RefundCompleted | orderId, paymentId, refundAmount |
+| RefundRequested | campaignId, orderId, partnerId (금액은 아직 정하지 않는다) |
+| RefundAmountFixed | campaignId, orderId, partnerId, refundAmount(과금을 닫은 순간의 budget − spent), spentTotal |
+| RefundCompleted | orderId, paymentId, partnerId, refundAmount |
 | ImpressionReceived | campaignId, placement, occurredAt (eventId = 노출 ID) |
 | CampaignCharged | campaignId, partnerId, chargeId, impressions(과금한 수), amount, spentTotal |
 | BudgetExhausted | campaignId, partnerId, spentTotal |

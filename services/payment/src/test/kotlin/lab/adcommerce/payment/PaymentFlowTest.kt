@@ -59,6 +59,15 @@ class PaymentFlowTest {
 
         override fun find(paymentId: UUID): PgOutcome? =
             if (amounts[paymentId]?.rem(10) == 4L) PgOutcome.Unavailable else recorded[paymentId]
+
+        /** 멱등키별로 PG가 실제로 취소한 금액(같은 키는 한 번만 취소). */
+        val cancelled = ConcurrentHashMap<UUID, Long>()
+        val cancelCalls = AtomicInteger()
+
+        override fun cancel(transactionId: String, amount: Long, idempotencyKey: UUID) {
+            cancelCalls.incrementAndGet()
+            cancelled.putIfAbsent(idempotencyKey, amount)
+        }
     }
 
     @TestConfiguration
@@ -232,6 +241,49 @@ class PaymentFlowTest {
         assertThat(reason(orderId)).isEqualTo("PG_UNAVAILABLE")
         assertThat(resultEvents(orderId)).containsExactly("PaymentFailed")
         assertThat(pg.calls[orderId]).isNull() // 기한이 지난 결제는 PG에 다시 보내지 않는다
+    }
+
+    private fun publishRefundFixed(orderId: UUID, amount: Long) {
+        val payload = RefundAmountFixed(UUID.randomUUID(), orderId, "P-1", amount, 300_000 - amount)
+        val envelope = EventEnvelope(UUID.randomUUID(), "RefundAmountFixed", 1, Instant.now(), orderId.toString(), mapper.valueToTree(payload))
+        kafka.send(Topics.BUDGET, orderId.toString(), mapper.writeValueAsString(envelope)).get()
+    }
+
+    private fun refund(orderId: UUID): Pair<String, Long>? =
+        jdbc.sql("SELECT status, amount FROM refunds WHERE order_id = :id").param("id", orderId)
+            .query { rs, _ -> rs.getString("status") to rs.getLong("amount") }.optional().orElse(null)
+
+    @Test
+    fun `환불 금액이 확정되면 PG에서 그만큼 취소하고, 같은 이벤트가 다시 와도 취소와 RefundCompleted는 한 번이다`() {
+        val orderId = UUID.randomUUID()
+        publishOrder(orderId, 300_000)
+        eventually("APPROVED") { status(orderId) == "APPROVED" }
+
+        publishRefundFixed(orderId, 120_000)
+        publishRefundFixed(orderId, 120_000) // 재전달(다른 eventId로 다시 와도 refunds 유니크가 막는다)
+        eventually("환불 완료") { refund(orderId)?.first == "COMPLETED" }
+        Thread.sleep(1_000)
+
+        assertThat(refund(orderId)).isEqualTo("COMPLETED" to 120_000L)
+        val refundId = jdbc.sql("SELECT id FROM refunds WHERE order_id = :id").param("id", orderId).query(UUID::class.java).single()
+        assertThat(pg.cancelled[refundId]).isEqualTo(120_000) // 멱등키 = 환불 ID
+        assertThat(resultEvents(orderId).filter { it == "RefundCompleted" }).hasSize(1)
+    }
+
+    @Test
+    fun `결제 금액보다 큰 환불이나 승인되지 않은 결제는 환불하지 않는다`() {
+        val approved = UUID.randomUUID()
+        publishOrder(approved, 300_000)
+        eventually("APPROVED") { status(approved) == "APPROVED" }
+        val declined = UUID.randomUUID()
+        publishOrder(declined, 300_001)
+        eventually("FAILED") { status(declined) == "FAILED" }
+
+        publishRefundFixed(approved, 300_001)
+        publishRefundFixed(declined, 1_000)
+        Thread.sleep(2_000)
+        assertThat(refund(approved)).isNull()
+        assertThat(refund(declined)).isNull()
     }
 
     private fun reason(orderId: UUID): String? =

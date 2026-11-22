@@ -108,6 +108,23 @@ class SettlementFlowTest {
     }
 
     @Test
+    fun `환불은 선수금 차변, PG 미수금 대변으로 기록하고 정산서의 환불액과 잔액에 반영한다`() {
+        val partner = "P-" + UUID.randomUUID()
+        val payment = approved(partner, 300_000)
+        val charge = charged(partner, 120_000)
+        val orderId = UUID.randomUUID()
+        val refund = publish(Topics.PAYMENT_REFUND, "RefundCompleted", orderId.toString(), RefundCompleted(orderId, UUID.randomUUID(), partner, 180_000))
+        val zero = publish(Topics.PAYMENT_REFUND, "RefundCompleted", UUID.randomUUID().toString(), RefundCompleted(UUID.randomUUID(), UUID.randomUUID(), partner, 0))
+        eventually("분개 3개") { listOf(payment, charge, refund).all { lines(it).size == 2 } }
+
+        assertThat(lines(refund)).containsExactly(Triple("PARTNER_PREPAID", 180_000L, 0L), Triple("PG_RECEIVABLE", 0L, 180_000L))
+        assertThat(lines(zero)).isEmpty() // 0원 환불은 적을 것이 없다
+        val s = statement(partner, YearMonth.now(ZoneId.of("Asia/Seoul")))
+        assertThat(s.get("refunded").asLong()).isEqualTo(180_000)
+        assertThat(s.get("balance").asLong()).isZero() // 30만 원 = 사용 12만 + 환불 18만
+    }
+
+    @Test
     fun `차변 합과 대변 합이 다른 분개는 DB가 커밋을 막는다`() {
         assertThatThrownBy {
             tx.executeWithoutResult {

@@ -43,6 +43,8 @@
 | [0007](02-design/adr/0007-impression-billing.md) | 노출 수집·과금: Kafka 배치를 창으로, 중복은 DB 유니크로, Redis 보류 |
 | [0008](02-design/adr/0008-double-entry-ledger.md) | 정산 원장: 복식부기, 균형은 DB 트리거가 강제 |
 | [0009](02-design/adr/0009-server-driven-ui.md) | 서버 주도 화면: 섹션 목록, 리비전 설정, 영역별 대체 표시, 서버가 버전을 맞춘다 |
+| [0010](02-design/adr/0010-agent-policy.md) | AI 에이전트: MCP 도구, 위임 한도·승인·멱등·감사는 서버 코드가 |
+| [0011](02-design/adr/0011-refund-saga.md) | 부분 환불 Saga: 과금을 먼저 닫고 그때의 금액으로 돌려준다 |
 
 ## D5. 강조점: 커머스·플랫폼 회사 (2026-11-21)
 - 상황: 주인이 가장 원하는 곳은 커머스·플랫폼 회사다.

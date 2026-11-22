@@ -60,6 +60,7 @@ data class CampaignView(
     val startDate: LocalDate,
     val endDate: LocalDate,
     val status: String,
+    val refundedAmount: Long,
 )
 
 // 이벤트 페이로드(docs/02-design/03-events.md)
@@ -194,7 +195,9 @@ class DeliveryChargeListener(private val inbox: Inbox, private val jdbc: JdbcCli
         val status = if (event.type == "BudgetExhausted") "EXHAUSTED" else null
         jdbc.sql(
             """
-            UPDATE campaigns SET spent = GREATEST(spent, :spent), status = COALESCE(:status, status), updated_at = now()
+            UPDATE campaigns SET spent = GREATEST(spent, :spent),
+                   status = CASE WHEN status = 'ACTIVE' THEN COALESCE(:status, status) ELSE status END, -- 환불 중인 캠페인을 되돌리지 않는다
+                   updated_at = now()
             WHERE id = :id
             """.trimIndent(),
         ).param("spent", update.spentTotal).param("status", status).param("id", update.campaignId).update()
