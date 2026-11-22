@@ -28,7 +28,7 @@
 | M2 장애 격리·관측 | 서킷 브레이커, 결과 재조회, 장애 주입(Toxiproxy), 분산 트레이싱, 지표, S4~S6 전후 비교 | 완료 ([흐름](docs/03-development/flow-m2.md), [실험 결과](docs/04-verification/m2-resilience.md)) |
 | M3 노출·과금·정산 | 노출 수집(초당 1만 건 확인), 배치 과금·예산 차감, 복식부기 원장(DB 트리거), 정산서 | 완료 ([흐름](docs/03-development/flow-m3.md), [실험 결과](docs/04-verification/m3-billing.md)) |
 | M4 서버 주도 화면 | SDUI BFF(리비전 설정·출처별 대체 표시·버전 맞추기), React 렌더러, 운영자 권한 | 완료 ([흐름](docs/03-development/flow-m4.md), [실험 결과](docs/04-verification/m4-sdui.md)) |
-| M5 AI 에이전트 | MCP 도구, 위임 한도, 사람 승인, 인젝션 평가 | 예정 |
+| M5 AI 에이전트 | MCP 도구 서버(Python), 위임 한도(예약·행 잠금), 사람 승인(SDUI 승인 화면), 멱등, 감사 로그, 부분 환불 Saga, 주입 평가(17케이스 정책 위반 실행 0건) | 완료 ([흐름](docs/03-development/flow-m5.md), [평가 결과](docs/04-verification/m5-agent.md)) |
 
 ## 실행
 
@@ -39,6 +39,7 @@ bash scripts/e2e-m3.sh            # 주문 → 노출 → 과금 → 정산서
 bash scripts/experiments/m2.sh s5  # 장애 실험(S4~S6)
 bash scripts/experiments/m3.sh s7  # 노출 부하 실험(S7~S9)
 bash scripts/experiments/m4.sh s10 # 서버 주도 화면 실험(S10~S12)
+bash scripts/experiments/m5.sh eval # 에이전트 주입 평가(S13~S17), agent/.venv 필요(cd agent && uv sync)
 python scripts/trace.py            # 최근 주문 하나의 분산 트레이스
 ```
 
@@ -46,6 +47,7 @@ python scripts/trace.py            # 최근 주문 하나의 분산 트레이스
 | --- | --- |
 | 파트너 앱(SDUI 렌더러) | http://localhost:5173 |
 | API(gateway, 파트너 키 `demo-partner-key`, 운영자 키 `demo-operator-key`) | http://localhost:8080 |
+| MCP 도구(에이전트 키 `demo-agent-key` + `X-Mandate-Id`, 운영 에이전트 키 `demo-ops-agent-key`) | http://localhost:8080/api/agent/mcp/partner, http://localhost:8080/api/admin/agent/mcp/ops |
 | Grafana 대시보드 "M2 장애 격리" | http://localhost:3000 |
 | Jaeger(트레이스) | http://localhost:16686 |
 | Kafka UI(토픽·컨슈머 지연) | http://localhost:8089 |

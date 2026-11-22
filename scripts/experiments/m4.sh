@@ -8,6 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export MSYS_NO_PATHCONV=1 PYTHONIOENCODING=utf-8
+source scripts/experiments/lib.sh
 GW=http://localhost:8080
 PARTNER=demo-partner-key
 OPERATOR=demo-operator-key # 로컬 데모 운영자 키(gateway 설정, 실제 비밀값 아님)
@@ -87,18 +88,6 @@ s12() {
   until [ "$(code localhost:8084/actuator/health)" = 200 ]; do sleep 2; done
   sleep 12
   echo "  delivery 복구 뒤:"; timing 20; breaker
-}
-
-shot() { # $1=파일 이름 $2=쿼리
-  local edge="/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" profile out
-  profile=$(mktemp -d); out="docs/04-verification/img/$1.png"; mkdir -p docs/04-verification/img
-  # 사용 중인 Edge와 섞이지 않게 임시 프로필로 띄운다
-  "$edge" --headless=new --disable-gpu --hide-scrollbars --no-first-run --user-data-dir="$(cygpath -w "$profile")" \
-    --window-size=470,"${3:-1050}" --virtual-time-budget=5000 --screenshot="$(cygpath -w "$PWD/$out")" "http://localhost:5173/?$2" >/dev/null 2>&1 || true
-  # Edge 실행 파일은 먼저 끝나고 브라우저는 뒤에서 캡처를 마친다. 파일이 생길 때까지 기다린 뒤 임시 프로필을 지운다.
-  for _ in $(seq 1 30); do [ -s "$out" ] && break; sleep 1; done
-  sleep 2; rm -rf "$profile" 2>/dev/null || true
-  [ -s "$out" ] && echo "  $out" || echo "  캡처 실패: $out"
 }
 
 shots() {
