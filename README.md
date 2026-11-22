@@ -10,6 +10,10 @@
 
 > 판단은 에이전트가, 금액과 상태는 코드가 결정한다.
 
+| 파트너 앱 홈(서버가 내려준 화면) | 구버전 앱 | 성과 조회 서비스 장애 |
+| --- | --- | --- |
+| <img src="docs/04-verification/img/home-new.png" width="240"> | <img src="docs/04-verification/img/home-old.png" width="240"> | <img src="docs/04-verification/img/home-delivery-down.png" width="240"> |
+
 ## 문서
 
 기획 → 설계 → 개발 → 검증 순서로 나눠 남깁니다. [문서 지도](docs/README.md)
@@ -23,7 +27,7 @@
 | M1 구매·결제 코어 | 멱등키, 상태 머신, Transactional Outbox → Kafka, Saga 보상 | 완료 ([흐름](docs/03-development/flow-m1.md)) |
 | M2 장애 격리·관측 | 서킷 브레이커, 결과 재조회, 장애 주입(Toxiproxy), 분산 트레이싱, 지표, S4~S6 전후 비교 | 완료 ([흐름](docs/03-development/flow-m2.md), [실험 결과](docs/04-verification/m2-resilience.md)) |
 | M3 노출·과금·정산 | 노출 수집(초당 1만 건 확인), 배치 과금·예산 차감, 복식부기 원장(DB 트리거), 정산서 | 완료 ([흐름](docs/03-development/flow-m3.md), [실험 결과](docs/04-verification/m3-billing.md)) |
-| M4 서버 주도 화면 | SDUI BFF, React 렌더러, 컴포넌트 버전·대체 표시 | 예정 |
+| M4 서버 주도 화면 | SDUI BFF(리비전 설정·출처별 대체 표시·버전 맞추기), React 렌더러, 운영자 권한 | 완료 ([흐름](docs/03-development/flow-m4.md), [실험 결과](docs/04-verification/m4-sdui.md)) |
 | M5 AI 에이전트 | MCP 도구, 위임 한도, 사람 승인, 인젝션 평가 | 예정 |
 
 ## 실행
@@ -34,12 +38,14 @@ bash scripts/e2e-m1.sh            # 정상 흐름 스모크
 bash scripts/e2e-m3.sh            # 주문 → 노출 → 과금 → 정산서
 bash scripts/experiments/m2.sh s5  # 장애 실험(S4~S6)
 bash scripts/experiments/m3.sh s7  # 노출 부하 실험(S7~S9)
+bash scripts/experiments/m4.sh s10 # 서버 주도 화면 실험(S10~S12)
 python scripts/trace.py            # 최근 주문 하나의 분산 트레이스
 ```
 
 | 화면 | 주소 |
 | --- | --- |
-| API(gateway, 키 `demo-partner-key`) | http://localhost:8080 |
+| 파트너 앱(SDUI 렌더러) | http://localhost:5173 |
+| API(gateway, 파트너 키 `demo-partner-key`, 운영자 키 `demo-operator-key`) | http://localhost:8080 |
 | Grafana 대시보드 "M2 장애 격리" | http://localhost:3000 |
 | Jaeger(트레이스) | http://localhost:16686 |
 | Kafka UI(토픽·컨슈머 지연) | http://localhost:8089 |
