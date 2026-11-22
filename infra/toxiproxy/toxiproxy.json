@@ -1,4 +1,5 @@
 [
-  { "name": "pg", "listen": "0.0.0.0:28090", "upstream": "mock-pg:8090", "enabled": true },
-  { "name": "catalog", "listen": "0.0.0.0:28081", "upstream": "catalog:8081", "enabled": true }
+  {"name": "pg", "listen": "0.0.0.0:28090", "upstream": "mock-pg:8090", "enabled": true},
+  {"name": "catalog", "listen": "0.0.0.0:28081", "upstream": "catalog:8081", "enabled": true},
+  {"name": "delivery", "listen": "0.0.0.0:28084", "upstream": "delivery:8084", "enabled": true}
 ]

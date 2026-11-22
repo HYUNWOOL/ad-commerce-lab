@@ -149,15 +149,22 @@ data class CampaignStats(
 
 @RestController
 class StatsController(private val jdbc: JdbcClient) {
+    private val row = org.springframework.jdbc.core.RowMapper { rs, _ ->
+        val budget = rs.getLong("budget")
+        val spent = rs.getLong("spent")
+        val cpv = rs.getLong("cpv_price")
+        CampaignStats(rs.getObject("campaign_id", UUID::class.java), budget, spent, budget - spent, cpv, spent / cpv, rs.getString("status"))
+    }
+
     @GetMapping("/campaigns/{id}/stats")
     fun stats(@RequestHeader("X-Partner-Id") partnerId: String, @PathVariable id: UUID): CampaignStats =
         jdbc.sql("SELECT * FROM campaign_budgets WHERE campaign_id = :id AND partner_id = :partnerId")
-            .param("id", id).param("partnerId", partnerId)
-            .query { rs, _ ->
-                val budget = rs.getLong("budget")
-                val spent = rs.getLong("spent")
-                val cpv = rs.getLong("cpv_price")
-                CampaignStats(id, budget, spent, budget - spent, cpv, spent / cpv, rs.getString("status"))
-            }
+            .param("id", id).param("partnerId", partnerId).query(row)
             .optional().orElse(null) ?: throw NotFound("캠페인 $id 의 집행 정보가 없습니다")
+
+    /** 파트너의 최근 캠페인 20개. 화면(experience)이 캠페인마다 부르지 않게 한 번에 준다. */
+    @GetMapping("/campaigns/stats")
+    fun recent(@RequestHeader("X-Partner-Id") partnerId: String): List<CampaignStats> =
+        jdbc.sql("SELECT * FROM campaign_budgets WHERE partner_id = :partnerId ORDER BY created_at DESC LIMIT 20")
+            .param("partnerId", partnerId).query(row).list()
 }

@@ -9,4 +9,5 @@ include(
     "services:gateway",
     "services:delivery",
     "services:settlement",
+    "services:experience",
 )

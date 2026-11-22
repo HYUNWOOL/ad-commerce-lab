@@ -27,6 +27,13 @@ spring:
                 - Path=/api/settlements/**
               filters:
                 - StripPrefix=1
+            # 서버 주도 화면(ADR-0009). /api/admin은 운영자 키만 통과한다(ApiKeyFilter).
+            - id: screens
+              uri: ${EXPERIENCE_URL:http://localhost:8086}
+              predicates:
+                - Path=/api/screens/**,/api/admin/**
+              filters:
+                - StripPrefix=1
             - id: orders
               uri: ${CAMPAIGN_URL:http://localhost:8082}
               predicates:
@@ -44,6 +51,8 @@ gateway:
   api-keys:
     demo-partner-key: P-DEMO
     demo-partner-key-2: P-DEMO-2
+  operator-keys:
+    demo-operator-key: ops-demo # 로컬 실험용 데모 운영자 키(실제 비밀값 아님)
 management:
   endpoints:
     web:

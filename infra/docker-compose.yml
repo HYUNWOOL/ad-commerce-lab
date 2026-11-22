@@ -122,6 +122,28 @@ services:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }
 
+  experience:
+    build: { context: .., dockerfile: infra/service.Dockerfile, args: { SERVICE: experience } }
+    restart: unless-stopped
+    ports: ["8086:8086"]
+    environment:
+      <<: [*spring, *observability]
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/experience
+      CLIENTS_CATALOG_URL: http://catalog:8081
+      CLIENTS_DELIVERY_URL: http://toxiproxy:28084 # S12 지연 주입을 위해 Toxiproxy를 거친다
+      CLIENTS_SETTLEMENT_URL: http://settlement:8085
+    depends_on:
+      postgres: { condition: service_healthy }
+      toxiproxy: { condition: service_started }
+
+  # SDUI 렌더러(React). 정적 파일 + /api는 gateway로(web/nginx.conf).
+  web:
+    build: { context: ../web }
+    restart: unless-stopped
+    ports: ["5173:80"]
+    depends_on:
+      gateway: { condition: service_started }
+
   mock-pg:
     build: { context: .., dockerfile: infra/service.Dockerfile, args: { SERVICE: mock-pg } }
     restart: unless-stopped
@@ -140,6 +162,7 @@ services:
       PAYMENT_URL: http://payment:8083
       DELIVERY_URL: http://delivery:8084
       SETTLEMENT_URL: http://settlement:8085
+      EXPERIENCE_URL: http://experience:8086
 
   # 장애 주입(M2): 서비스 사이 링크에 지연·끊김을 건다. 제어 API는 localhost:8474.
   toxiproxy:

@@ -32,13 +32,14 @@ fun main(args: Array<String>) {
     runApplication<GatewayApplication>(*args)
 }
 
-/** API 키 → 파트너 ID. 회원 시스템 대신 정적 키를 쓴다(기획 범위). */
+/** API 키 → 파트너 ID, 운영자 키 → 운영자 ID. 회원 시스템 대신 정적 키를 쓴다(기획 범위). */
 @ConfigurationProperties("gateway")
-data class ApiKeys(val apiKeys: Map<String, String> = emptyMap())
+data class ApiKeys(val apiKeys: Map<String, String> = emptyMap(), val operatorKeys: Map<String, String> = emptyMap())
 
 /**
- * /api 아래 요청은 X-Api-Key를 확인하고, 내부 서비스가 믿을 X-Partner-Id를 붙인다.
- * 바깥에서 보낸 X-Partner-Id는 버린다(위조 방지).
+ * /api 아래 요청은 X-Api-Key를 확인하고, 내부 서비스가 믿을 신원 헤더를 하나만 붙인다.
+ * /api/admin 아래는 운영자 키만 받아 X-Operator-Id를, 나머지는 파트너 키만 받아 X-Partner-Id를 붙인다(ADR-0009 7번).
+ * 바깥에서 보낸 두 헤더는 모두 버린다(위조 방지).
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -47,28 +48,44 @@ class ApiKeyFilter(private val keys: ApiKeys) : OncePerRequestFilter() {
     override fun shouldNotFilter(request: HttpServletRequest) = !request.requestURI.startsWith("/api/")
 
     override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
-        val partnerId = request.getHeader("X-Api-Key")?.let { keys.apiKeys[it] }
-        if (partnerId == null) {
-            response.status = 401
-            response.contentType = "application/problem+json"
-            response.writer.write("""{"status":401,"detail":"유효한 X-Api-Key가 필요합니다"}""")
-            return
+        val key = request.getHeader("X-Api-Key")
+        val admin = request.requestURI.startsWith("/api/admin/")
+        val identity = key?.let { if (admin) keys.operatorKeys[it] else keys.apiKeys[it] }
+        when {
+            identity != null -> chain.doFilter(IdentityRequest(request, if (admin) OPERATOR else PARTNER, identity), response)
+            admin && key != null && keys.apiKeys.containsKey(key) -> problem(response, 403, "운영자 키가 필요합니다")
+            else -> problem(response, 401, "유효한 X-Api-Key가 필요합니다")
         }
-        chain.doFilter(PartnerRequest(request, partnerId), response)
     }
 
-    private class PartnerRequest(request: HttpServletRequest, private val partnerId: String) : HttpServletRequestWrapper(request) {
-        override fun getHeader(name: String): String? =
-            if (name.equals(HEADER, true)) partnerId else super.getHeader(name)
+    private fun problem(response: HttpServletResponse, status: Int, detail: String) {
+        response.status = status
+        response.contentType = "application/problem+json"
+        response.characterEncoding = "UTF-8"
+        response.writer.write("""{"status":$status,"detail":"$detail"}""")
+    }
 
-        override fun getHeaders(name: String): Enumeration<String> =
-            if (name.equals(HEADER, true)) Collections.enumeration(listOf(partnerId)) else super.getHeaders(name)
+    private class IdentityRequest(request: HttpServletRequest, private val header: String, private val value: String) : HttpServletRequestWrapper(request) {
+        private fun dropped(name: String) = name.equals(PARTNER, true) || name.equals(OPERATOR, true)
+
+        override fun getHeader(name: String): String? = when {
+            name.equals(header, true) -> value
+            dropped(name) -> null
+            else -> super.getHeader(name)
+        }
+
+        override fun getHeaders(name: String): Enumeration<String> = when {
+            name.equals(header, true) -> Collections.enumeration(listOf(value))
+            dropped(name) -> Collections.emptyEnumeration()
+            else -> super.getHeaders(name)
+        }
 
         override fun getHeaderNames(): Enumeration<String> =
-            Collections.enumeration(super.getHeaderNames().toList().filterNot { it.equals(HEADER, true) } + HEADER)
+            Collections.enumeration(super.getHeaderNames().toList().filterNot(::dropped) + header)
     }
 
     private companion object {
-        const val HEADER = "X-Partner-Id"
+        const val PARTNER = "X-Partner-Id"
+        const val OPERATOR = "X-Operator-Id"
     }
 }

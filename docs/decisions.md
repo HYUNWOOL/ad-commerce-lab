@@ -42,6 +42,7 @@
 | [0006](02-design/adr/0006-defer-when-pg-unavailable.md) | PG가 받지 않은 결제는 실패 대신 보류(S4 실험 결과로 결정) |
 | [0007](02-design/adr/0007-impression-billing.md) | 노출 수집·과금: Kafka 배치를 창으로, 중복은 DB 유니크로, Redis 보류 |
 | [0008](02-design/adr/0008-double-entry-ledger.md) | 정산 원장: 복식부기, 균형은 DB 트리거가 강제 |
+| [0009](02-design/adr/0009-server-driven-ui.md) | 서버 주도 화면: 섹션 목록, 리비전 설정, 영역별 대체 표시, 서버가 버전을 맞춘다 |
 
 ## D5. 강조점: 커머스·플랫폼 회사 (2026-11-21)
 - 상황: 주인이 가장 원하는 곳은 커머스·플랫폼 회사다.
